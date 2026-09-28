@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Config with private API keys
+config.json
+.env
+.streamlit/secrets.toml
+
+# Scraped / temporary customer lead files
+*.xlsx
+*.csv
+!sample_test_data.csv
+!sample_test_data.xlsx
+
+# Environments
+env/
+venv/
+.venv/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
