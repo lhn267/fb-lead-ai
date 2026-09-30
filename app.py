@@ -375,6 +375,21 @@ with tab_upload:
             help="Hệ thống sẽ tự động gộp nội dung các cột này lại với nhau (giống như cách ChatGPT đọc toàn bộ dòng) để AI có đầy đủ thông tin nhất."
         )
 
+        if not sel_info_cols:
+            st.markdown(f"""
+            <div style="background-color:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:14px 18px; margin: 12px 0; color:#991B1B;">
+                <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                    {get_svg_icon('shield', 20, '#DC2626')}
+                    CẢNH BÁO: FILE NÀY KHÔNG CÓ CỘT THÔNG TIN CÔNG VIỆC / HỌC VẤN!
+                </div>
+                <div style="font-size:0.9rem; line-height:1.5;">
+                    • <b>Hiện trạng file:</b> File bạn vừa nạp chỉ có cột Tên và Link, hoàn toàn không có cột chữ mô tả nào từ Facebook. Nếu bấm xử lý, AI sẽ không có dữ liệu để đọc.<br>
+                    • <b>Nguyên nhân 1:</b> Khi quét bằng Instant Data Scraper, tool đã bắt nhầm khung bảng con. Hãy bấm nút <b>"Try another table"</b> trên tiện ích để chọn khung to bao quát cả dòng công việc.<br>
+                    • <b>Nguyên nhân 2:</b> Trên màn hình Facebook bạn vừa quét, tài khoản đó chỉ hiện chữ "X bạn chung" chứ Facebook không hiển thị dòng học vấn/công việc ra ngoài danh sách bạn bè.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
         with st.expander("Xem trước dữ liệu chuẩn bị gửi cho AI (5 người đầu tiên)"):
             preview_rows = []
             for idx, r in df_current.head(5).iterrows():
