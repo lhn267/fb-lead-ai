@@ -10,6 +10,7 @@ from fb_processor import (
     export_styled_excel,
     merge_and_deduplicate_dfs
 )
+from fb_deep_crawler import run_deep_profile_crawl, CHROME_PROFILE_DIR
 
 # Page configuration
 st.set_page_config(
@@ -270,16 +271,19 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Tabs
-tab_upload, tab_results, tab_analytics, tab_guide = st.tabs([
-    "1. Tải Lên & Xử Lý",
-    "2. Bảng Kết Quả & Xuất File",
-    "3. Phân Tích Dữ Liệu",
-    "4. Hướng Dẫn A-Z"
+tab_upload, tab_deep_crawl, tab_results, tab_analytics, tab_guide = st.tabs([
+    "1. Tải Lên & Xử Lý Nhanh",
+    "2. 🔍 Cào Sâu Trang Cá Nhân",
+    "3. Bảng Kết Quả & Xuất File",
+    "4. Phân Tích Dữ Liệu",
+    "5. Hướng Dẫn A-Z"
 ])
 
 # Initialize session state
 if "raw_df" not in st.session_state:
     st.session_state.raw_df = None
+if "deep_enriched_df" not in st.session_state:
+    st.session_state.deep_enriched_df = None
 if "processed_df" not in st.session_state:
     st.session_state.processed_df = None
 if "selected_file_name" not in st.session_state:
@@ -453,12 +457,167 @@ with tab_upload:
                 st.session_state.processed_df = processed_results
                 progress_bar.progress(100)
                 status_text.success(f"Hoàn tất xử lý {len(processed_results)} người bạn trong {elapsed} giây!")
-                st.info("Hãy chuyển sang Tab 2 (Bảng Kết Quả & Xuất File) để lọc và tải file Excel về máy!")
+                st.info("Hãy chuyển sang Tab 3 (Bảng Kết Quả & Xuất File) để lọc và tải file Excel về máy!")
 
             except Exception as e:
                 st.error(f"Xảy ra lỗi trong quá trình xử lý: {str(e)}")
 
-# ----------------- TAB 2: RESULTS & EXPORT -----------------
+# ----------------- TAB 2: DEEP PROFILE CRAWLER -----------------
+with tab_deep_crawl:
+    st.markdown(f"""
+    <div class="section-title">
+        {get_svg_icon('search', 20, '#1E3A8A')}
+        <span>Cào Sâu Thông Tin Công Việc & Học Vấn Từ Trang Cá Nhân</span>
+    </div>
+    <div style="font-size:0.95rem; color:#4B5563; margin-bottom:15px; line-height:1.5;">
+        Dành cho các trường hợp danh sách bạn bè cào về <b>chỉ hiện chữ "X bạn chung"</b> mà không có cột thông tin công việc.<br>
+        Tính năng này sẽ sử dụng trình duyệt để <b>tự động mở trực tiếp tab Giới thiệu</b> (Công việc & Học vấn) của từng người trên Facebook để lấy sạch thông tin họ cài đặt.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Status of login
+    session_exists = os.path.exists(CHROME_PROFILE_DIR) and len(os.listdir(CHROME_PROFILE_DIR)) > 0
+    if not session_exists:
+        st.markdown(f"""
+        <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:15px; color:#92400E;">
+            <div style="font-weight:700; font-size:1rem; margin-bottom:4px;">
+                {get_svg_icon('shield', 18, '#D97706')} LƯU Ý QUAN TRỌNG: CẦN LƯU PHIÊN ĐĂNG NHẬP FACEBOOK TRƯỚC
+            </div>
+            <div style="font-size:0.9rem; line-height:1.5;">
+                Để cào được đầy đủ thông tin của bạn bè, bạn cần đăng nhập Facebook 1 lần duy nhất trên máy tính:<br>
+                1. Hãy nháy đúp chuột vào file: <b><code>Dang_Nhap_Facebook.bat</code></b> trong thư mục phần mềm.<br>
+                2. Đăng nhập tài khoản Facebook của bạn (tài khoản clone hoặc nick chính).<br>
+                3. Sau khi vào được bảng tin Facebook, đóng cửa sổ trình duyệt đó lại. Trình duyệt sẽ nhớ phiên đăng nhập vĩnh viễn!
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="alert-success" style="margin-bottom:15px;">
+            {get_svg_icon('check', 18, '#059669')}
+            <span style="font-size:0.92rem;"><b>Đã sẵn sàng phiên trình duyệt:</b> Trình duyệt đã có dữ liệu đăng nhập, sẵn sàng cào sâu thông tin trang cá nhân của bạn bè.</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Determine input dataframe for deep crawling
+    df_for_deep = None
+    if st.session_state.raw_df is not None:
+        df_for_deep = st.session_state.raw_df
+        st.info(f"Đang sử dụng dữ liệu từ file vừa nạp: **{len(df_for_deep)} người bạn** ({st.session_state.selected_file_name}).")
+    else:
+        deep_upload = st.file_uploader(
+            "Hoặc nạp file CSV / Excel chứa danh sách Link Profile Facebook:",
+            type=["csv", "xlsx", "xls"],
+            key="deep_crawler_upload"
+        )
+        if deep_upload:
+            df_for_deep = clean_file_data(deep_upload)
+
+    if df_for_deep is not None:
+        detected_deep = detect_columns(df_for_deep)
+        all_cols_deep = list(df_for_deep.columns)
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            name_idx_d = all_cols_deep.index(detected_deep["name_col"]) if detected_deep.get("name_col") in all_cols_deep else 0
+            deep_name_col = st.selectbox("Cột Họ và tên", options=all_cols_deep, index=name_idx_d, key="deep_sel_name")
+        with col_d2:
+            link_idx_d = all_cols_deep.index(detected_deep["link_col"]) if detected_deep.get("link_col") in all_cols_deep else 0
+            deep_link_col = st.selectbox("Cột Link Profile Facebook", options=all_cols_deep, index=link_idx_d, key="deep_sel_link")
+
+        # Crawler Settings
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            crawl_limit = st.number_input(
+                "Số lượng profile muốn cào sâu",
+                min_value=1,
+                max_value=len(df_for_deep),
+                value=min(len(df_for_deep), 50),
+                step=5,
+                help="Nên cào mỗi đợt từ 20 đến 50 người để đảm bảo an toàn tuyệt đối cho tài khoản."
+            )
+        with col_s2:
+            crawl_delay = st.slider(
+                "Độ trễ an toàn giữa các profile (giây)",
+                min_value=2.0,
+                max_value=6.0,
+                value=3.5,
+                step=0.5,
+                help="Mô phỏng hành vi người thật xem trang cá nhân (3.5s là mức chuẩn an toàn)."
+            )
+        with col_s3:
+            crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
+
+        if st.button("🚀 BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
+            p_bar_deep = st.progress(0)
+            status_deep = st.empty()
+
+            def deep_cb(current, total, msg):
+                pct = int((current / total) * 100) if total > 0 else 0
+                p_bar_deep.progress(min(pct, 100))
+                status_deep.text(msg)
+
+            try:
+                start_deep_t = time.time()
+                status_deep.text("Đang khởi động trình duyệt tự động...")
+                enriched_res = run_deep_profile_crawl(
+                    df=df_for_deep,
+                    link_col=deep_link_col,
+                    name_col=deep_name_col,
+                    max_count=int(crawl_limit),
+                    delay_seconds=float(crawl_delay),
+                    headless=crawl_headless,
+                    progress_callback=deep_cb
+                )
+                st.session_state.deep_enriched_df = enriched_res
+                p_bar_deep.progress(100)
+                dur = round(time.time() - start_deep_t, 1)
+                status_deep.success(f"Hoàn tất cào sâu thông tin cho {crawl_limit} profile trong {dur} giây!")
+            except Exception as e:
+                st.error(f"Lỗi khi cào sâu profile: {e}")
+
+        # If we have deep enriched results
+        if st.session_state.get("deep_enriched_df") is not None:
+            res_deep_df = st.session_state.deep_enriched_df
+            st.markdown("---")
+            st.markdown("##### 📋 Kết quả cào sâu trực tiếp từ trang cá nhân:")
+            st.dataframe(
+                res_deep_df[[deep_name_col, deep_link_col, "Thông tin cào sâu"]].head(int(crawl_limit) if 'crawl_limit' in locals() else 50),
+                use_container_width=True
+            )
+
+            # Button to send immediately to AI
+            if st.button("🤖 CHUYỂN DỮ LIỆU NÀY CHO AI BÓC TÁCH & PHÂN LOẠI CRM NGAY", type="primary", use_container_width=True):
+                # Run AI on this enriched dataframe
+                ai_p_bar = st.progress(0)
+                ai_status = st.empty()
+
+                def update_deep_ai_p(done, total):
+                    pct = int((done / total) * 100)
+                    ai_p_bar.progress(pct)
+                    ai_status.text(f"AI đang bóc tách: {done}/{total} người ({pct}%)...")
+
+                eff_provider = provider_code if api_key else "offline"
+                eff_key = api_key if api_key else None
+
+                sub_df = res_deep_df.head(int(crawl_limit) if 'crawl_limit' in locals() else len(res_deep_df))
+                ai_output = process_friends_dataframe(
+                    df=sub_df,
+                    name_col=deep_name_col,
+                    link_col=deep_link_col,
+                    info_cols=["Thông tin cào sâu"],
+                    api_key=eff_key,
+                    api_provider=eff_provider,
+                    model_name=model_name,
+                    target_criteria=target_criteria,
+                    batch_size=batch_size,
+                    progress_callback=update_deep_ai_p
+                )
+                st.session_state.processed_df = ai_output
+                ai_p_bar.progress(100)
+                ai_status.success("Đã hoàn tất phân loại CRM bằng AI! Hãy chuyển sang Tab 3 (Bảng Kết Quả & Xuất File) để xem và tải Excel!")
+
+# ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
     if st.session_state.processed_df is None:
         st.markdown(f"""
@@ -605,7 +764,7 @@ with tab_results:
                 use_container_width=True
             )
 
-# ----------------- TAB 3: ANALYTICS -----------------
+# ----------------- TAB 4: ANALYTICS -----------------
 with tab_analytics:
     if st.session_state.processed_df is None:
         st.markdown(f"""
@@ -653,7 +812,7 @@ with tab_analytics:
         else:
             st.write("Chưa có đủ thông tin ngành nghề chi tiết.")
 
-# ----------------- TAB 4: STEP-BY-STEP GUIDE & SAFE SCALING -----------------
+# ----------------- TAB 5: STEP-BY-STEP GUIDE & SAFE SCALING -----------------
 with tab_guide:
     st.markdown(f"""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">

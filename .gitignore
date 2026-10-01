@@ -7,6 +7,7 @@ __pycache__/
 config.json
 .env
 .streamlit/secrets.toml
+fb_chrome_session/
 
 # Scraped / temporary customer lead files
 *.xlsx
