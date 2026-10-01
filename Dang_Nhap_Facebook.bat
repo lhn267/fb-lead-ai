@@ -1,38 +1,33 @@
 @echo off
 chcp 65001 > nul
-title DANG NHAP FACEBOOK LUU PHIEN CAO DU LIEU
+title DANG NHAP FACEBOOK TRUC TIEP
 color 0a
 
 echo =========================================================================
-echo    DANG NHAP FACEBOOK DE LUU PHIEN CAO THONG TIN TRANG CA NHAN
+echo    DANG NHAP FACEBOOK TRUC TIEP BANG GOOGLE CHROME NGUYEN BAN
 echo =========================================================================
 echo.
-echo  Dang khoi dong trinh duyet Chromium...
+echo  Dang mo Google Chrome...
 echo.
 
 cd /d "%~dp0"
 
-:: Tim duong dan Python
-set PYTHON_CMD=python
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
-        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
-    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
-        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
-    ) else (
-        echo [LOI] Khong tim thay Python tren may tinh!
-        pause
-        exit /b 1
+set "CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe"
+if not exist "%CHROME_EXE%" (
+    if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
+        set "CHROME_EXE=%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
+    ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
+        set "CHROME_EXE=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
     )
 )
 
-%PYTHON_CMD% login_helper.py
+start "" "%CHROME_EXE%" --user-data-dir="%~dp0fb_chrome_session" "https://www.facebook.com"
 
+echo  Cua so Google Chrome da mo!
 echo.
-echo =========================================================================
-echo  HOAN TAT! Hay quay lai giao dien web de bat dau cao sau.
+echo  >> Hay dang nhap tai khoan Facebook tren cua so Chrome vua hien len.
+echo  >> Sau khi dang nhap xong va vao duoc bang tin, hay DONG cua so Chrome do lai.
+echo  >> Du lieu phien dang nhap se duoc luu tu dong.
+echo.
 echo =========================================================================
 pause
