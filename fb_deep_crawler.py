@@ -2,12 +2,36 @@ import os
 import re
 import time
 import json
+import subprocess
 import pandas as pd
 from typing import List, Dict, Any, Optional, Callable
 from playwright.sync_api import sync_playwright, BrowserContext, Page
 
 # Profile directory for persistent Facebook session
 CHROME_PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fb_chrome_session")
+
+def cleanup_chrome_lock():
+    """
+    Cleans up any lingering Chrome processes using CHROME_PROFILE_DIR and removes stale lock files.
+    """
+    try:
+        ps_cmd = (
+            "$procs = Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*fb_chrome_session*' }; "
+            "if ($procs) { $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force } }"
+        )
+        subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], 
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+        
+    for fname in ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]:
+        fpath = os.path.join(CHROME_PROFILE_DIR, fname)
+        if os.path.exists(fpath):
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
 
 def get_about_url(profile_url: str) -> str:
     """Converts a standard Facebook profile URL into its About Work & Education URL."""
@@ -76,6 +100,7 @@ def extract_work_education_from_page(page: Page) -> Dict[str, Any]:
         elif current_section in ["school", "high_school"]:
             if not any(item in line for item in school_items):
                 school_items.append(line)
+
     # Broad scan for explicit Vietnamese job/school statements
     for line in lines:
         line_s = line.strip()
@@ -148,23 +173,51 @@ def run_deep_profile_crawl(
         
     total_to_crawl = min(len(enriched_df), max_count)
     
+    browser = None
+    context = None
+    
     with sync_playwright() as p:
-        # Launch persistent context to reuse cookies in clean stealth mode
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=CHROME_PROFILE_DIR,
-            channel="chrome",
-            headless=headless,
-            viewport={"width": 1280, "height": 800},
-            ignore_default_args=["--enable-automation", "--no-sandbox"],
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars"
-            ]
-        )
-        
-        # Inject cookie string if provided
-        if cookie_str:
+        if cookie_str and cookie_str.strip():
+            # If user provided raw cookie string, launch clean chrome instance without profile lock
+            browser = p.chromium.launch(
+                channel="chrome",
+                headless=headless,
+                ignore_default_args=["--enable-automation"]
+            )
+            context = browser.new_context(viewport={"width": 1280, "height": 800})
             inject_cookie_string(context, cookie_str)
+        else:
+            # Auto-cleanup stale locks before launching persistent context
+            cleanup_chrome_lock()
+            time.sleep(0.5)
+            try:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=CHROME_PROFILE_DIR,
+                    channel="chrome",
+                    headless=headless,
+                    viewport={"width": 1280, "height": 800},
+                    ignore_default_args=["--enable-automation"]
+                )
+            except Exception as err:
+                if "ProcessSingleton" in str(err) or "Lock file" in str(err):
+                    time.sleep(1.0)
+                    cleanup_chrome_lock()
+                    try:
+                        context = p.chromium.launch_persistent_context(
+                            user_data_dir=CHROME_PROFILE_DIR,
+                            channel="chrome",
+                            headless=headless,
+                            viewport={"width": 1280, "height": 800},
+                            ignore_default_args=["--enable-automation"]
+                        )
+                    except Exception as final_err:
+                        raise RuntimeError(
+                            "Cửa sổ Google Chrome đăng nhập Facebook vẫn đang mở! "
+                            "Vui lòng ĐÓNG cửa sổ Chrome vừa mở (hoặc tắt Dang_Nhap_Facebook.bat) "
+                            "rồi bấm lại 'Bắt đầu cào sâu'. Hoặc bạn có thể dán Cookie Facebook ở ô bên dưới để cào ngay lập tức mà không cần mở trình duyệt."
+                        ) from final_err
+                else:
+                    raise err
             
         page = context.pages[0] if context.pages else context.new_page()
         
@@ -201,6 +254,9 @@ def run_deep_profile_crawl(
             except Exception as e:
                 enriched_df.at[idx, "Thông tin cào sâu"] = f"Lỗi truy cập profile: {str(e)[:50]}"
                 
-        context.close()
-        
+        if browser:
+            browser.close()
+        elif context:
+            context.close()
+            
     return enriched_df

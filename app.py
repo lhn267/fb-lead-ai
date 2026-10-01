@@ -493,9 +493,12 @@ with tab_deep_crawl:
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
-        <div class="alert-success" style="margin-bottom:15px;">
+        <div class="alert-success" style="margin-bottom:12px;">
             {get_svg_icon('check', 18, '#059669')}
             <span style="font-size:0.92rem;"><b>Đã sẵn sàng phiên trình duyệt:</b> Trình duyệt đã có dữ liệu đăng nhập, sẵn sàng cào sâu thông tin trang cá nhân của bạn bè.</span>
+        </div>
+        <div style="background-color:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:10px 14px; margin-bottom:15px; font-size:0.88rem; color:#1E40AF;">
+            💡 <b>Mẹo quan trọng:</b> Hãy đảm bảo bạn đã <b>TẮT cửa sổ Chrome đăng nhập</b> (nếu trước đó có mở bằng <code>Dang_Nhap_Facebook.bat</code>) trước khi bấm cào sâu, vì Chrome chỉ cho phép một ứng dụng mở phiên tại một thời điểm.
         </div>
         """, unsafe_allow_html=True)
 

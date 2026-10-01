@@ -30,11 +30,7 @@ def main():
             channel="chrome",
             headless=False,
             viewport={"width": 1280, "height": 800},
-            ignore_default_args=["--enable-automation", "--no-sandbox"],
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars"
-            ]
+            ignore_default_args=["--enable-automation"]
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://www.facebook.com/")
