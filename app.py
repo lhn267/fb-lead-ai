@@ -3,6 +3,11 @@ import json
 import time
 import pandas as pd
 import streamlit as st
+import importlib
+import fb_processor
+import fb_deep_crawler
+importlib.reload(fb_processor)
+importlib.reload(fb_deep_crawler)
 from fb_processor import (
     detect_columns,
     clean_file_data,
