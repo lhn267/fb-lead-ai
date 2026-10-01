@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import platform
 import subprocess
 import pandas as pd
 from typing import List, Dict, Any, Optional, Callable
@@ -9,6 +10,35 @@ from playwright.sync_api import sync_playwright, BrowserContext, Page
 
 # Profile directory for persistent Facebook session
 CHROME_PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fb_chrome_session")
+
+def get_chrome_channel() -> Optional[str]:
+    """
+    Returns 'chrome' only if Google Chrome is verified to exist on the host system.
+    Otherwise returns None (which tells Playwright to use its bundled Chromium).
+    """
+    sys_name = platform.system()
+    if sys_name == "Windows":
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")
+        ]
+        if any(os.path.exists(p) for p in chrome_paths):
+            return "chrome"
+    elif sys_name == "Linux":
+        if os.path.exists("/opt/google/chrome/chrome") or os.path.exists("/usr/bin/google-chrome"):
+            return "chrome"
+    elif sys_name == "Darwin":
+        if os.path.exists("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"):
+            return "chrome"
+    return None
+
+def ensure_playwright_installed():
+    """Installs Playwright Chromium if it is not installed in the environment."""
+    try:
+        subprocess.run(["playwright", "install", "chromium"], capture_output=True, timeout=120)
+    except Exception:
+        pass
 
 def cleanup_chrome_lock():
     """
@@ -175,41 +205,73 @@ def run_deep_profile_crawl(
     
     browser = None
     context = None
+    channel_to_use = get_chrome_channel()
     
+    launch_args = ["--disable-blink-features=AutomationControlled"]
+    if platform.system() == "Linux":
+        launch_args.extend(["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"])
+
     with sync_playwright() as p:
         if cookie_str and cookie_str.strip():
-            # If user provided raw cookie string, launch clean chrome instance without profile lock
-            browser = p.chromium.launch(
-                channel="chrome",
-                headless=headless,
-                ignore_default_args=["--enable-automation"]
-            )
+            # If user provided raw cookie string, launch clean browser instance
+            try:
+                browser = p.chromium.launch(
+                    channel=channel_to_use,
+                    headless=headless,
+                    args=launch_args,
+                    ignore_default_args=["--enable-automation"]
+                )
+            except Exception:
+                try:
+                    browser = p.chromium.launch(
+                        channel=None,
+                        headless=headless,
+                        args=launch_args,
+                        ignore_default_args=["--enable-automation"]
+                    )
+                except Exception:
+                    ensure_playwright_installed()
+                    browser = p.chromium.launch(
+                        channel=None,
+                        headless=headless,
+                        args=launch_args,
+                        ignore_default_args=["--enable-automation"]
+                    )
             context = browser.new_context(viewport={"width": 1280, "height": 800})
             inject_cookie_string(context, cookie_str)
         else:
-            # Auto-cleanup stale locks before launching persistent context
+            # Persistent session mode
             cleanup_chrome_lock()
             time.sleep(0.5)
+
+            def try_launch_persistent(ch):
+                kwargs = {
+                    "user_data_dir": CHROME_PROFILE_DIR,
+                    "headless": headless,
+                    "viewport": {"width": 1280, "height": 800},
+                    "args": launch_args,
+                    "ignore_default_args": ["--enable-automation"]
+                }
+                if ch:
+                    kwargs["channel"] = ch
+                return p.chromium.launch_persistent_context(**kwargs)
+
             try:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=CHROME_PROFILE_DIR,
-                    channel="chrome",
-                    headless=headless,
-                    viewport={"width": 1280, "height": 800},
-                    ignore_default_args=["--enable-automation"]
-                )
+                context = try_launch_persistent(channel_to_use)
             except Exception as err:
-                if "ProcessSingleton" in str(err) or "Lock file" in str(err):
+                err_str = str(err)
+                if ("chrome" in err_str.lower() and "not found" in err_str.lower()) or "executable doesn" in err_str.lower():
+                    # Fallback to standard Chromium without channel="chrome"
+                    try:
+                        context = try_launch_persistent(None)
+                    except Exception:
+                        ensure_playwright_installed()
+                        context = try_launch_persistent(None)
+                elif "ProcessSingleton" in err_str or "Lock file" in err_str:
                     time.sleep(1.0)
                     cleanup_chrome_lock()
                     try:
-                        context = p.chromium.launch_persistent_context(
-                            user_data_dir=CHROME_PROFILE_DIR,
-                            channel="chrome",
-                            headless=headless,
-                            viewport={"width": 1280, "height": 800},
-                            ignore_default_args=["--enable-automation"]
-                        )
+                        context = try_launch_persistent(channel_to_use)
                     except Exception as final_err:
                         raise RuntimeError(
                             "Cửa sổ Google Chrome đăng nhập Facebook vẫn đang mở! "
@@ -217,7 +279,11 @@ def run_deep_profile_crawl(
                             "rồi bấm lại 'Bắt đầu cào sâu'. Hoặc bạn có thể dán Cookie Facebook ở ô bên dưới để cào ngay lập tức mà không cần mở trình duyệt."
                         ) from final_err
                 else:
-                    raise err
+                    try:
+                        ensure_playwright_installed()
+                        context = try_launch_persistent(None)
+                    except Exception:
+                        raise err
             
         page = context.pages[0] if context.pages else context.new_page()
         
