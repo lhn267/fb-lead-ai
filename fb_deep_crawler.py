@@ -35,10 +35,14 @@ def get_chrome_channel() -> Optional[str]:
 
 def ensure_playwright_installed():
     """Installs Playwright Chromium if it is not installed in the environment."""
+    import sys
     try:
-        subprocess.run(["playwright", "install", "chromium"], capture_output=True, timeout=120)
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+        subprocess.run(cmd, capture_output=True, timeout=180)
     except Exception:
         pass
+
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 def cleanup_chrome_lock():
     """
@@ -263,7 +267,7 @@ def run_deep_profile_crawl(
                         args=launch_args,
                         ignore_default_args=["--enable-automation"]
                     )
-            context = browser.new_context(viewport={"width": 1280, "height": 800})
+            context = browser.new_context(viewport={"width": 1280, "height": 800}, user_agent=DEFAULT_USER_AGENT)
             inject_cookie_string(context, cookie_str)
         else:
             # Persistent session mode
@@ -275,6 +279,7 @@ def run_deep_profile_crawl(
                     "user_data_dir": CHROME_PROFILE_DIR,
                     "headless": headless,
                     "viewport": {"width": 1280, "height": 800},
+                    "user_agent": DEFAULT_USER_AGENT,
                     "args": launch_args,
                     "ignore_default_args": ["--enable-automation"]
                 }

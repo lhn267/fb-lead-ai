@@ -17,6 +17,20 @@ from fb_processor import (
 )
 from fb_deep_crawler import run_deep_profile_crawl, CHROME_PROFILE_DIR
 
+@st.cache_resource
+def ensure_cloud_playwright():
+    import platform
+    import sys
+    import subprocess
+    if platform.system() == "Linux":
+        try:
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True, timeout=180)
+        except Exception:
+            pass
+    return True
+
+ensure_cloud_playwright()
+
 # Page configuration
 st.set_page_config(
     page_title="AI FB Lead Extractor - Phân Loại Bạn Bè Facebook",
