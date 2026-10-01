@@ -1,24 +1,38 @@
 @echo off
 chcp 65001 > nul
-title ĐĂNG NHẬP FACEBOOK ĐỂ LƯU PHIÊN CÀO DỮ LIỆU SÂU
+title DANG NHAP FACEBOOK LUU PHIEN CAO DU LIEU
 color 0a
 
 echo =========================================================================
-echo    🌐 ĐĂNG NHẬP FACEBOOK ĐỂ LƯU PHIÊN CÀO THÔNG TIN TRANG CÁ NHÂN
+echo    DANG NHAP FACEBOOK DE LUU PHIEN CAO THONG TIN TRANG CA NHAN
 echo =========================================================================
 echo.
-echo  Đang mở trình duyệt Chromium...
+echo  Dang khoi dong trinh duyet Chromium...
 echo.
 
-set "PYTHON_EXE=python"
-if exist "C:\Users\User\AppData\Local\Programs\Python\Python313\python.exe" (
-    set "PYTHON_EXE=C:\Users\User\AppData\Local\Programs\Python\Python313\python.exe"
+cd /d "%~dp0"
+
+:: Tim duong dan Python
+set PYTHON_CMD=python
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+        set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    ) else (
+        echo [LOI] Khong tim thay Python tren may tinh!
+        pause
+        exit /b 1
+    )
 )
 
-"%PYTHON_EXE%" login_helper.py
+%PYTHON_CMD% login_helper.py
 
 echo.
 echo =========================================================================
-echo  HOÀN TẤT! Hãy quay lại giao diện web để bấm bắt đầu cào sâu.
+echo  HOAN TAT! Hay quay lai giao dien web de bat dau cao sau.
 echo =========================================================================
 pause
