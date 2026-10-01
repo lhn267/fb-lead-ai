@@ -105,6 +105,27 @@ def extract_work_education_from_page(page: Page) -> Dict[str, Any]:
         "full_text": full_text if full_text else "Không có thông tin việc làm công khai"
     }
 
+def inject_cookie_string(context, cookie_str: str):
+    """Parses standard cookie string and injects into Playwright browser context."""
+    if not cookie_str or not isinstance(cookie_str, str):
+        return
+    cookies = []
+    for item in cookie_str.split(";"):
+        item = item.strip()
+        if "=" in item:
+            name, val = item.split("=", 1)
+            name = name.strip()
+            val = val.strip()
+            if name:
+                cookies.append({
+                    "name": name,
+                    "value": val,
+                    "domain": ".facebook.com",
+                    "path": "/"
+                })
+    if cookies:
+        context.add_cookies(cookies)
+
 def run_deep_profile_crawl(
     df: pd.DataFrame,
     link_col: str,
@@ -112,6 +133,7 @@ def run_deep_profile_crawl(
     max_count: int = 50,
     delay_seconds: float = 3.5,
     headless: bool = True,
+    cookie_str: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None
 ) -> pd.DataFrame:
     """
@@ -127,13 +149,23 @@ def run_deep_profile_crawl(
     total_to_crawl = min(len(enriched_df), max_count)
     
     with sync_playwright() as p:
-        # Launch persistent context to reuse cookies
+        # Launch persistent context to reuse cookies in clean stealth mode
         context = p.chromium.launch_persistent_context(
             user_data_dir=CHROME_PROFILE_DIR,
+            channel="chrome",
             headless=headless,
             viewport={"width": 1280, "height": 800},
-            args=["--disable-blink-features=AutomationControlled"]
+            ignore_default_args=["--enable-automation", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars"
+            ]
         )
+        
+        # Inject cookie string if provided
+        if cookie_str:
+            inject_cookie_string(context, cookie_str)
+            
         page = context.pages[0] if context.pages else context.new_page()
         
         # Check if logged in

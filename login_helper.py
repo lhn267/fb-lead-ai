@@ -27,9 +27,14 @@ def main():
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=CHROME_PROFILE_DIR,
+            channel="chrome",
             headless=False,
             viewport={"width": 1280, "height": 800},
-            args=["--disable-blink-features=AutomationControlled"]
+            ignore_default_args=["--enable-automation", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars"
+            ]
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://www.facebook.com/")

@@ -548,6 +548,14 @@ with tab_deep_crawl:
         with col_s3:
             crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
 
+        with st.expander("🔑 Hoặc Dán Trực Tiếp Cookie Facebook (Bỏ qua 100% bước Đăng nhập & Xác thực 2FA)"):
+            deep_cookie = st.text_input(
+                "Chuỗi Cookie Facebook (từ Chrome bạn đang đăng nhập):",
+                value="",
+                type="password",
+                help="Chỉ cần dán chuỗi cookie (có chứa c_user=... và xs=...) từ trình duyệt Chrome bạn đang dùng vào đây. Hệ thống sẽ dùng thẳng phiên đó mà không cần mở trình duyệt đăng nhập!"
+            )
+
         if st.button("🚀 BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
             p_bar_deep = st.progress(0)
             status_deep = st.empty()
@@ -567,6 +575,7 @@ with tab_deep_crawl:
                     max_count=int(crawl_limit),
                     delay_seconds=float(crawl_delay),
                     headless=crawl_headless,
+                    cookie_str=deep_cookie if 'deep_cookie' in locals() and deep_cookie else None,
                     progress_callback=deep_cb
                 )
                 st.session_state.deep_enriched_df = enriched_res
