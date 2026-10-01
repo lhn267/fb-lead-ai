@@ -41,7 +41,7 @@ st.set_page_config(
 
 # ----------------- UNIFIED SVG ICON ENGINE -----------------
 def get_svg_icon(name: str, size: int = 18, color: str = "currentColor", extra_style: str = "") -> str:
-    """Returns a clean, unified Lucide/Feather vector SVG icon with consistent stroke and geometry."""
+    """Returns a clean, unified Lucide vector SVG icon with consistent stroke and geometry."""
     style_attr = f'style="vertical-align: middle; display: inline-block; {extra_style}"'
     icons = {
         "facebook": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>',
@@ -54,7 +54,9 @@ def get_svg_icon(name: str, size: int = 18, color: str = "currentColor", extra_s
         "users": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
         "star": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
         "briefcase": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
-        "check": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+        "check": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><polyline points="20 6 9 17 4 12"></polyline></svg>',
+        "check_circle": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+        "x_circle": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>',
         "trash": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
         "search": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
         "filter": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>',
@@ -68,7 +70,14 @@ def get_svg_icon(name: str, size: int = 18, color: str = "currentColor", extra_s
         "building": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M8 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M16 14h.01"></path></svg>',
         "user": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
         "link": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
-        "external": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>'
+        "external": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>',
+        "key": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>',
+        "bot": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path></svg>',
+        "rocket": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path></svg>',
+        "lightbulb": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>',
+        "clipboard": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><rect width="14" height="18" x="5" y="4" rx="2"></rect><path d="M8 4V2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M9 9h6M9 13h6M9 17h4"></path></svg>',
+        "sparkles": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>',
+        "info": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>'
     }
     return icons.get(name, "")
 
@@ -105,7 +114,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
+        gap: 8px;
         font-size: 0.82rem;
         font-weight: 600;
         color: #64748B;
@@ -124,13 +133,38 @@ st.markdown("""
     .section-title {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 1.15rem;
+        gap: 10px;
+        font-size: 1.18rem;
         font-weight: 700;
         color: #1E3A8A;
         margin-top: 14px;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
+    .icon-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        flex-shrink: 0;
+    }
+    .icon-pill-sm {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+    }
+    .icon-pill-lg {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+    }
+    .icon-pill-blue { background: #EFF6FF; border: 1px solid #BFDBFE; color: #2563EB; }
+    .icon-pill-emerald { background: #ECFDF5; border: 1px solid #A7F3D0; color: #059669; }
+    .icon-pill-amber { background: #FFFBEB; border: 1px solid #FDE68A; color: #D97706; }
+    .icon-pill-purple { background: #F5F3FF; border: 1px solid #DDD6FE; color: #7C3AED; }
+    .icon-pill-rose { background: #FEF2F2; border: 1px solid #FECACA; color: #DC2626; }
+    .icon-pill-slate { background: #F8FAFC; border: 1px solid #E2E8F0; color: #475569; }
     .alert-success {
         display: flex;
         align-items: flex-start;
@@ -145,7 +179,7 @@ st.markdown("""
     .alert-info {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
+        gap: 12px;
         background-color: #EFF6FF;
         border: 1px solid #BFDBFE;
         border-radius: 8px;
@@ -207,8 +241,8 @@ saved_cfg = load_saved_config()
 with st.sidebar:
     st.markdown(f"""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom: 14px;">
-        {get_svg_icon('settings', 24, '#1E3A8A')}
-        <span style="font-size: 1.2rem; font-weight: 700; color: #1E3A8A;">Cấu Hình Hệ Thống</span>
+        <span class="icon-pill icon-pill-blue">{get_svg_icon('settings', 18, '#2563EB')}</span>
+        <span style="font-size: 1.15rem; font-weight: 700; color: #1E3A8A;">Cấu Hình Hệ Thống</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -252,7 +286,7 @@ with st.sidebar:
         provider_code = "offline"
         st.markdown(f"""
         <div class="alert-info" style="margin-top:10px;">
-            {get_svg_icon('shield', 18, '#1E40AF')}
+            <span class="icon-pill icon-pill-blue" style="width:26px; height:26px;">{get_svg_icon('shield', 14, '#1E40AF')}</span>
             <span style="font-size:0.88rem;">Chế độ Offline: Sử dụng bộ từ điển lọc rác và quy tắc bóc tách chức vụ nội bộ không cần API.</span>
         </div>
         """, unsafe_allow_html=True)
@@ -292,11 +326,11 @@ st.markdown(f"""
 
 # Tabs
 tab_upload, tab_deep_crawl, tab_results, tab_analytics, tab_guide = st.tabs([
-    "1. Tải Lên & Xử Lý Nhanh",
-    "2. 🔍 Cào Sâu Trang Cá Nhân",
-    "3. Bảng Kết Quả & Xuất File",
-    "4. Phân Tích Dữ Liệu",
-    "5. Hướng Dẫn A-Z"
+    "1. Nạp File & Phân Tích",
+    "2. Cào Sâu Trang Cá Nhân",
+    "3. Bảng Kết Quả CRM",
+    "4. Biểu Đồ Phân Tích",
+    "5. Hướng Dẫn Sử Dụng"
 ])
 
 # Initialize session state
@@ -319,7 +353,7 @@ if "dupes_removed_count" not in st.session_state:
 with tab_upload:
     st.markdown(f"""
     <div class="section-title">
-        {get_svg_icon('upload', 20, '#1E3A8A')}
+        <span class="icon-pill icon-pill-blue">{get_svg_icon('upload', 18, '#2563EB')}</span>
         <span>Tải Lên File Cào Danh Sách Bạn Bè Facebook</span>
     </div>
     """, unsafe_allow_html=True)
@@ -356,7 +390,7 @@ with tab_upload:
         if st.session_state.dupes_removed_count > 0 or st.session_state.total_files_count > 1:
             st.markdown(f"""
             <div class="alert-success">
-                {get_svg_icon('check', 22, '#059669')}
+                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
                 <div>
                     <strong style="font-size:0.98rem;">TỰ ĐỘNG GỘP VÀ KHỬ TRÙNG LẶP THÀNH CÔNG</strong><br>
                     <span>&bull; <b>Số file đã nạp:</b> {st.session_state.total_files_count} file</span><br>
@@ -368,8 +402,8 @@ with tab_upload:
             """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
-            <div style="display:flex; align-items:center; gap:8px; margin: 10px 0;">
-                {get_svg_icon('users', 20, '#2563EB')}
+            <div style="display:flex; align-items:center; gap:10px; margin: 10px 0;">
+                <span class="icon-pill icon-pill-blue">{get_svg_icon('users', 18, '#2563EB')}</span>
                 <span style="font-size: 1.1rem; font-weight: 600; color: #1E293B;">Dữ liệu đầu vào: {len(df_current)} người bạn (Nguồn: {st.session_state.selected_file_name})</span>
             </div>
             """, unsafe_allow_html=True)
@@ -402,9 +436,9 @@ with tab_upload:
         if not sel_info_cols:
             st.markdown(f"""
             <div style="background-color:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:14px 18px; margin: 12px 0; color:#991B1B;">
-                <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:1rem; margin-bottom:6px;">
-                    {get_svg_icon('shield', 20, '#DC2626')}
-                    CẢNH BÁO: FILE NÀY KHÔNG CÓ CỘT THÔNG TIN CÔNG VIỆC / HỌC VẤN!
+                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                    <span class="icon-pill icon-pill-rose">{get_svg_icon('shield', 18, '#DC2626')}</span>
+                    <span>CẢNH BÁO: FILE NÀY KHÔNG CÓ CỘT THÔNG TIN CÔNG VIỆC / HỌC VẤN!</span>
                 </div>
                 <div style="font-size:0.9rem; line-height:1.5;">
                     • <b>Hiện trạng file:</b> File bạn vừa nạp chỉ có cột Tên và Link, hoàn toàn không có cột chữ mô tả nào từ Facebook. Nếu bấm xử lý, AI sẽ không có dữ liệu để đọc.<br>
@@ -486,7 +520,7 @@ with tab_upload:
 with tab_deep_crawl:
     st.markdown(f"""
     <div class="section-title">
-        {get_svg_icon('search', 20, '#1E3A8A')}
+        <span class="icon-pill icon-pill-blue">{get_svg_icon('search', 20, '#2563EB')}</span>
         <span>Cào Sâu Thông Tin Công Việc & Học Vấn Từ Trang Cá Nhân</span>
     </div>
     <div style="font-size:0.95rem; color:#4B5563; margin-bottom:15px; line-height:1.5;">
@@ -500,8 +534,9 @@ with tab_deep_crawl:
     if not session_exists:
         st.markdown(f"""
         <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:15px; color:#92400E;">
-            <div style="font-weight:700; font-size:1rem; margin-bottom:4px;">
-                {get_svg_icon('shield', 18, '#D97706')} LƯU Ý QUAN TRỌNG: CẦN LƯU PHIÊN ĐĂNG NHẬP FACEBOOK TRƯỚC
+            <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                <span class="icon-pill icon-pill-amber">{get_svg_icon('shield', 18, '#D97706')}</span>
+                <span>LƯU Ý QUAN TRỌNG: CẦN LƯU PHIÊN ĐĂNG NHẬP FACEBOOK TRƯỚC</span>
             </div>
             <div style="font-size:0.9rem; line-height:1.5;">
                 Để cào được đầy đủ thông tin của bạn bè, bạn cần đăng nhập Facebook 1 lần duy nhất trên máy tính:<br>
@@ -514,11 +549,12 @@ with tab_deep_crawl:
     else:
         st.markdown(f"""
         <div class="alert-success" style="margin-bottom:12px;">
-            {get_svg_icon('check', 18, '#059669')}
+            <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
             <span style="font-size:0.92rem;"><b>Đã sẵn sàng phiên trình duyệt:</b> Trình duyệt đã có dữ liệu đăng nhập, sẵn sàng cào sâu thông tin trang cá nhân của bạn bè.</span>
         </div>
-        <div style="background-color:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:10px 14px; margin-bottom:15px; font-size:0.88rem; color:#1E40AF;">
-            💡 <b>Mẹo quan trọng:</b> Hãy đảm bảo bạn đã <b>TẮT cửa sổ Chrome đăng nhập</b> (nếu trước đó có mở bằng <code>Dang_Nhap_Facebook.bat</code>) trước khi bấm cào sâu, vì Chrome chỉ cho phép một ứng dụng mở phiên tại một thời điểm.
+        <div style="background-color:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:10px 14px; margin-bottom:15px; font-size:0.88rem; color:#1E40AF; display:flex; align-items:center; gap:10px;">
+            <span class="icon-pill icon-pill-blue" style="width:26px; height:26px;">{get_svg_icon('lightbulb', 16, '#2563EB')}</span>
+            <span><b>Mẹo quan trọng:</b> Hãy đảm bảo bạn đã <b>TẮT cửa sổ Chrome đăng nhập</b> (nếu trước đó có mở bằng <code>Dang_Nhap_Facebook.bat</code>) trước khi bấm cào sâu, vì Chrome chỉ cho phép một ứng dụng mở phiên tại một thời điểm.</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -572,7 +608,7 @@ with tab_deep_crawl:
             crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
 
         saved_fb_cookie = saved_cfg.get("fb_cookie", "")
-        with st.expander("🔑 Cấu hình Cookie Facebook (Tự động lưu vĩnh viễn, không cần nhập lại)", expanded=not bool(saved_fb_cookie)):
+        with st.expander("Cấu hình Cookie Facebook (Tự động lưu vĩnh viễn, không cần nhập lại)", expanded=not bool(saved_fb_cookie)):
             deep_cookie = st.text_input(
                 "Chuỗi Cookie Facebook (c_user=...; xs=...):",
                 value=saved_fb_cookie,
@@ -582,11 +618,16 @@ with tab_deep_crawl:
             if deep_cookie and deep_cookie != saved_fb_cookie:
                 saved_cfg["fb_cookie"] = deep_cookie
                 save_user_config(saved_cfg)
-                st.success("✅ Đã tự động lưu Cookie mới vào hệ thống!")
+                st.success("Đã tự động lưu Cookie mới vào hệ thống!")
             elif saved_fb_cookie:
-                st.caption("✅ Đã có Cookie lưu sẵn trong cấu hình. Bạn chỉ cần bấm nút Cào sâu bên dưới!")
+                st.markdown(f'''
+                <div style="display:flex; align-items:center; gap:8px; font-size:0.88rem; color:#059669; margin-top:6px;">
+                    <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
+                    <span>Đã có Cookie lưu sẵn trong cấu hình. Bạn chỉ cần bấm nút Cào sâu bên dưới!</span>
+                </div>
+                ''', unsafe_allow_html=True)
 
-        if st.button("🚀 BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
+        if st.button("BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
             p_bar_deep = st.progress(0)
             status_deep = st.empty()
 
@@ -620,14 +661,19 @@ with tab_deep_crawl:
         if st.session_state.get("deep_enriched_df") is not None:
             res_deep_df = st.session_state.deep_enriched_df
             st.markdown("---")
-            st.markdown("##### 📋 Kết quả cào sâu trực tiếp từ trang cá nhân:")
+            st.markdown(f'''
+            <div class="section-title">
+                <span class="icon-pill icon-pill-blue">{get_svg_icon('clipboard', 20, '#2563EB')}</span>
+                <span>Kết quả cào sâu trực tiếp từ trang cá nhân:</span>
+            </div>
+            ''', unsafe_allow_html=True)
             st.dataframe(
                 res_deep_df[[deep_name_col, deep_link_col, "Thông tin cào sâu"]].head(int(crawl_limit) if 'crawl_limit' in locals() else 50),
                 use_container_width=True
             )
 
             # Button to send immediately to AI
-            if st.button("🤖 CHUYỂN DỮ LIỆU NÀY CHO AI BÓC TÁCH & PHÂN LOẠI CRM NGAY", type="primary", use_container_width=True):
+            if st.button("CHUYỂN DỮ LIỆU NÀY CHO AI BÓC TÁCH & PHÂN LOẠI CRM NGAY", type="primary", use_container_width=True):
                 # Run AI on this enriched dataframe
                 ai_p_bar = st.progress(0)
                 ai_status = st.empty()
@@ -662,7 +708,7 @@ with tab_results:
     if st.session_state.processed_df is None:
         st.markdown(f"""
         <div class="alert-info">
-            {get_svg_icon('table', 20, '#1E40AF')}
+            <span class="icon-pill icon-pill-blue">{get_svg_icon('table', 18, '#2563EB')}</span>
             <span>Chưa có dữ liệu xử lý. Vui lòng tải file và bấm nút 'Bắt đầu xử lý' ở Tab 1 trước.</span>
         </div>
         """, unsafe_allow_html=True)
@@ -680,35 +726,50 @@ with tab_results:
         with kpi1:
             st.markdown(f'''
             <div class="metric-card">
-                <div class="metric-header">{get_svg_icon("users", 18, "#2563EB")} <span>TỔNG QUÉT</span></div>
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("users", 14, "#2563EB")}</span>
+                    <span>TỔNG QUÉT</span>
+                </div>
                 <div class="metric-val">{total_leads}</div>
             </div>
             ''', unsafe_allow_html=True)
         with kpi2:
             st.markdown(f'''
             <div class="metric-card">
-                <div class="metric-header">{get_svg_icon("star", 18, "#059669")} <span>TIỀM NĂNG CAO</span></div>
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon("star", 14, "#059669")}</span>
+                    <span>TIỀM NĂNG CAO</span>
+                </div>
                 <div class="metric-val val-green">{high_potential}</div>
             </div>
             ''', unsafe_allow_html=True)
         with kpi3:
             st.markdown(f'''
             <div class="metric-card">
-                <div class="metric-header">{get_svg_icon("briefcase", 18, "#0284C7")} <span>TIỀM NĂNG TRUNG BÌNH</span></div>
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("briefcase", 14, "#2563EB")}</span>
+                    <span>TIỀM NĂNG TRUNG BÌNH</span>
+                </div>
                 <div class="metric-val val-blue">{mid_potential}</div>
             </div>
             ''', unsafe_allow_html=True)
         with kpi4:
             st.markdown(f'''
             <div class="metric-card">
-                <div class="metric-header">{get_svg_icon("check", 18, "#D97706")} <span>HỢP LỆ</span></div>
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-amber icon-pill-sm">{get_svg_icon("check_circle", 14, "#D97706")}</span>
+                    <span>HỢP LỆ</span>
+                </div>
                 <div class="metric-val val-amber">{valid_count}</div>
             </div>
             ''', unsafe_allow_html=True)
         with kpi5:
             st.markdown(f'''
             <div class="metric-card">
-                <div class="metric-header">{get_svg_icon("trash", 18, "#DC2626")} <span>RÁC / ĐÙA CỢT</span></div>
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-rose icon-pill-sm">{get_svg_icon("trash", 14, "#DC2626")}</span>
+                    <span>RÁC / ĐÙA CỢT</span>
+                </div>
                 <div class="metric-val val-red">{trash_count}</div>
             </div>
             ''', unsafe_allow_html=True)
@@ -718,7 +779,7 @@ with tab_results:
         # Filters
         st.markdown(f'''
         <div class="section-title">
-            {get_svg_icon("filter", 20, "#1E3A8A")}
+            <span class="icon-pill icon-pill-blue">{get_svg_icon("filter", 18, "#2563EB")}</span>
             <span>Bộ Lọc Nhanh Dữ Liệu</span>
         </div>
         ''', unsafe_allow_html=True)
@@ -773,7 +834,7 @@ with tab_results:
         st.markdown("---")
         st.markdown(f'''
         <div class="section-title">
-            {get_svg_icon("download", 20, "#1E3A8A")}
+            <span class="icon-pill icon-pill-emerald">{get_svg_icon("download", 18, "#059669")}</span>
             <span>Xuất Dữ Liệu</span>
         </div>
         ''', unsafe_allow_html=True)
@@ -809,7 +870,7 @@ with tab_analytics:
     if st.session_state.processed_df is None:
         st.markdown(f"""
         <div class="alert-info">
-            {get_svg_icon('chart', 20, '#1E40AF')}
+            <span class="icon-pill icon-pill-blue">{get_svg_icon('chart', 18, '#2563EB')}</span>
             <span>Vui lòng xử lý dữ liệu trước để xem biểu đồ phân tích.</span>
         </div>
         """, unsafe_allow_html=True)
@@ -820,7 +881,7 @@ with tab_analytics:
         with an_col1:
             st.markdown(f'''
             <div class="section-title">
-                {get_svg_icon("chart", 18, "#1E3A8A")}
+                <span class="icon-pill icon-pill-blue">{get_svg_icon("chart", 18, "#2563EB")}</span>
                 <span>Phân Bổ Cấp Bậc</span>
             </div>
             ''', unsafe_allow_html=True)
@@ -831,7 +892,7 @@ with tab_analytics:
         with an_col2:
             st.markdown(f'''
             <div class="section-title">
-                {get_svg_icon("target", 18, "#1E3A8A")}
+                <span class="icon-pill icon-pill-amber">{get_svg_icon("target", 18, "#D97706")}</span>
                 <span>Phân Bổ Tầng Lead</span>
             </div>
             ''', unsafe_allow_html=True)
@@ -841,7 +902,7 @@ with tab_analytics:
 
         st.markdown(f'''
         <div class="section-title">
-            {get_svg_icon("building", 18, "#1E3A8A")}
+            <span class="icon-pill icon-pill-purple">{get_svg_icon("building", 18, "#7C3AED")}</span>
             <span>Phân Bổ Ngành Nghề / Lĩnh Vực</span>
         </div>
         ''', unsafe_allow_html=True)
@@ -855,8 +916,8 @@ with tab_analytics:
 # ----------------- TAB 5: STEP-BY-STEP GUIDE & SAFE SCALING -----------------
 with tab_guide:
     st.markdown(f"""
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
-        {get_svg_icon('shield', 26, '#1E3A8A')}
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+        <span class="icon-pill icon-pill-blue icon-pill-lg">{get_svg_icon('shield', 22, '#2563EB')}</span>
         <h3 style="margin:0; font-size:1.35rem; font-weight:700; color:#1E3A8A;">Chiến Lược Triển Khai Thực Chiến (Từ Clone đến Nick Chính 3k - 4k Friends)</h3>
     </div>
     """, unsafe_allow_html=True)
