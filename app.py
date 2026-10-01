@@ -257,7 +257,8 @@ with st.sidebar:
             "gemini_key": api_key if provider_code == "gemini" else saved_cfg.get("gemini_key", ""),
             "openai_key": api_key if provider_code == "openai" else saved_cfg.get("openai_key", ""),
             "target_criteria": target_criteria,
-            "batch_size": batch_size
+            "batch_size": batch_size,
+            "fb_cookie": saved_cfg.get("fb_cookie", "")
         }
         save_user_config(cfg)
         st.success("Đã lưu cấu hình thành công!")
@@ -556,13 +557,20 @@ with tab_deep_crawl:
         with col_s3:
             crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
 
-        with st.expander("🔑 Hoặc Dán Trực Tiếp Cookie Facebook (Bỏ qua 100% bước Đăng nhập & Xác thực 2FA)"):
+        saved_fb_cookie = saved_cfg.get("fb_cookie", "")
+        with st.expander("🔑 Cấu hình Cookie Facebook (Tự động lưu vĩnh viễn, không cần nhập lại)", expanded=not bool(saved_fb_cookie)):
             deep_cookie = st.text_input(
-                "Chuỗi Cookie Facebook (từ Chrome bạn đang đăng nhập):",
-                value="",
+                "Chuỗi Cookie Facebook (c_user=...; xs=...):",
+                value=saved_fb_cookie,
                 type="password",
-                help="Chỉ cần dán chuỗi cookie (có chứa c_user=... và xs=...) từ trình duyệt Chrome bạn đang dùng vào đây. Hệ thống sẽ dùng thẳng phiên đó mà không cần mở trình duyệt đăng nhập!"
+                help="Chuỗi Cookie sẽ được tự động lưu vĩnh viễn trên máy tính. Bạn không cần phải dán lại ở các lần sử dụng tiếp theo!"
             )
+            if deep_cookie and deep_cookie != saved_fb_cookie:
+                saved_cfg["fb_cookie"] = deep_cookie
+                save_user_config(saved_cfg)
+                st.success("✅ Đã tự động lưu Cookie mới vào hệ thống!")
+            elif saved_fb_cookie:
+                st.caption("✅ Đã có Cookie lưu sẵn trong cấu hình. Bạn chỉ cần bấm nút Cào sâu bên dưới!")
 
         if st.button("🚀 BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
             p_bar_deep = st.progress(0)
@@ -576,6 +584,7 @@ with tab_deep_crawl:
             try:
                 start_deep_t = time.time()
                 status_deep.text("Đang khởi động trình duyệt tự động...")
+                eff_cookie = deep_cookie.strip() if ('deep_cookie' in locals() and deep_cookie and deep_cookie.strip()) else saved_cfg.get("fb_cookie", "").strip()
                 enriched_res = run_deep_profile_crawl(
                     df=df_for_deep,
                     link_col=deep_link_col,
@@ -583,7 +592,7 @@ with tab_deep_crawl:
                     max_count=int(crawl_limit),
                     delay_seconds=float(crawl_delay),
                     headless=crawl_headless,
-                    cookie_str=deep_cookie if 'deep_cookie' in locals() and deep_cookie else None,
+                    cookie_str=eff_cookie if eff_cookie else None,
                     progress_callback=deep_cb
                 )
                 st.session_state.deep_enriched_df = enriched_res

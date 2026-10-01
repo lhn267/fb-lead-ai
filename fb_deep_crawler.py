@@ -63,101 +63,127 @@ def cleanup_chrome_lock():
             except Exception:
                 pass
 
-def get_about_url(profile_url: str) -> str:
-    """Converts a standard Facebook profile URL into its About Work & Education URL."""
+def get_clean_profile_url(profile_url: str) -> str:
+    """Converts mutual friends, subtabs, or query URLs into a clean base profile URL."""
     if not profile_url or not isinstance(profile_url, str):
         return ""
-    clean = profile_url.split("?")[0].rstrip("/")
-    if "profile.php" in profile_url:
-        # Match ID
-        m = re.search(r"id=(\d+)", profile_url)
+    clean = profile_url.strip()
+    if "profile.php" in clean:
+        m = re.search(r"id=(\d+)", clean)
         if m:
-            return f"https://www.facebook.com/profile.php?id={m.group(1)}&sk=about_work_and_education"
-        return f"{profile_url}&sk=about_work_and_education"
+            return f"https://www.facebook.com/profile.php?id={m.group(1)}"
+        return clean.split("&sk=")[0]
     else:
-        return f"{clean}/about_work_and_education"
+        clean = clean.split("?")[0].rstrip("/")
+        for suffix in ["/friends_mutual", "/friends", "/about_work_and_education", "/about"]:
+            if clean.endswith(suffix):
+                clean = clean[:-len(suffix)]
+        return clean.rstrip("/")
 
 def extract_work_education_from_page(page: Page) -> Dict[str, Any]:
     """
-    Extracts Work, School, and Basic Info text from Facebook's about_work_and_education page.
+    Extracts Work, School, Category, Bio, and Contact text from Facebook's page.
+    Compatible with both modern Professional Mode profiles and classic personal profiles.
     """
     page_text = page.inner_text("body")
     lines = [line.strip() for line in page_text.split("\n") if line.strip()]
     
+    IGNORE_TERMS = {
+        "facebook", "tìm bạn bè", "nhắn tin", "thêm bạn bè", "bạn bè", "ảnh", "reels",
+        "sự kiện", "xem thêm", "xem tất cả", "tất cả", "bài viết", "bộ lọc", "bài viết đã ghim",
+        "giới thiệu", "thông tin cá nhân", "nữ", "nam", "độc thân", "thước phim",
+        "hãy viết gì đó", "ảnh/video", "gắn thẻ người khác", "cảm xúc/hoạt động",
+        "xem thêm công việc", "xem thêm học vấn", "đăng ký", "trả lời", "tác giả",
+        "không có nơi làm việc để hiển thị", "không có trường học nào để hiển thị",
+        "đăng nhập", "bạn quên tài khoản", "quyền riêng tư", "điều khoản", "quảng cáo"
+    }
+    
     work_items = []
     school_items = []
-    
-    current_section = None
-    
-    IGNORE_PHRASES = [
-        "không có nơi làm việc để hiển thị",
-        "không có trường học nào để hiển thị",
-        "đăng nhập", "bạn quên tài khoản", "xem thêm", "giới thiệu", "bài viết",
-        "ảnh", "reels", "tổng quan", "nơi từng sống", "thông tin liên hệ",
-        "tính minh bạch", "gia đình", "chi tiết về", "cột mốc", "xem tất cả",
-        "email hoặc số điện thoại", "mật khẩu", "quên mật khẩu", "tạo tài khoản",
-        "quyền riêng tư", "điều khoản", "quảng cáo", "lựa chọn quảng cáo", "cookie"
-    ]
+    bio_items = []
+    contact_items = []
+    category = ""
+    current_sec = None
     
     for i, line in enumerate(lines):
-        line_low = line.lower()
+        line_l = line.lower()
         
-        # Section detection
-        if line_low in ["công việc", "work"]:
-            current_section = "work"
-            continue
-        elif line_low in ["đại học", "college", "học vấn", "education"]:
-            current_section = "school"
-            continue
-        elif line_low in ["trường trung học", "high school", "trường học"]:
-            current_section = "high_school"
-            continue
-        elif line_low in ["nơi từng sống", "places lived", "thông tin liên hệ", "tổng quan", "overview"]:
-            current_section = "other"
+        # Follower counts or mutual friends
+        if "người theo dõi" in line_l or re.match(r"^(\d+[\.,]?\d*[KkMm]?|\d+\s+bạn\s+chung)$", line):
             continue
             
-        if any(ig in line_low for ig in IGNORE_PHRASES):
+        # Detect Category / Hạng mục
+        if any(cat in line_l for cat in ["người sáng tạo nội dung", "blogger", "bất động sản", "doanh nhân", "nghệ sĩ", "chuyên viên", "nhà phát triển"]):
+            category = line
             continue
             
-        if len(line) < 3 or len(line) > 150:
+        # Section headers
+        if line_l in ["công việc", "work"]:
+            current_sec = "work"
+            continue
+        elif line_l in ["giáo dục", "học vấn", "trình độ học vấn", "education", "đại học", "trường học"]:
+            current_sec = "school"
+            continue
+        elif line_l in ["thông tin liên hệ", "liên kết", "liên hệ", "contact"]:
+            current_sec = "contact"
+            continue
+        elif line_l in ["thông tin cá nhân", "bạn bè", "bài viết", "ảnh", "reels", "sự kiện", "xem thêm", "tổng quan"]:
+            current_sec = None
             continue
             
-        # Collect items based on section
-        if current_section == "work":
-            # Collect meaningful job lines
-            if not any(item in line for item in work_items):
-                work_items.append(line)
-        elif current_section in ["school", "high_school"]:
-            if not any(item in line for item in school_items):
+        if line_l in IGNORE_TERMS or line.startswith("URL:") or (line.startswith("http") and "facebook.com" in line):
+            if not (current_sec == "contact" and ("linkedin" in line_l or "zalo" in line_l or ".com" in line_l)):
+                continue
+                
+        if len(line) < 2 or len(line) > 160:
+            continue
+            
+        # Section items
+        if current_sec == "work":
+            if line not in work_items and not any(term in line_l for term in ["vào ngày", "tháng"]):
+                if not line.startswith("·"):
+                    work_items.append(line)
+        elif current_sec == "school":
+            if line not in school_items:
                 school_items.append(line)
+        elif current_sec == "contact":
+            if any(kw in line_l for kw in ["linkedin", "zalo", "github", ".vn", ".com", ".asia"]) and not any(ig in line_l for ig in ["facebook", "fbcdn"]):
+                if line not in contact_items:
+                    contact_items.append(line)
+                    
+        # Explicit Vietnamese keywords anywhere in page
+        if any(kw in line_l for kw in ["làm việc tại", "chức vụ", "giám đốc tại", "quản lý tại", "founder tại", "ceo tại", "chủ tịch tại", "từng làm việc tại", "chủ sáng lập tại"]):
+            if line not in work_items:
+                work_items.append(line)
+        elif any(kw in line_l for kw in ["đã học tại", "từng học tại", "học tại", "sinh viên tại", "cựu sinh viên tại"]):
+            if line not in school_items:
+                school_items.append(line)
+                
+        # Bio / Subtitle detection
+        if i < 22 and not current_sec:
+            if any(kw in line_l for kw in ["hiring", "ceo", "founder", "lead", "manager", "director", "chuyên", "tư vấn", "zalo", "kinh doanh", "hr"]):
+                if line not in bio_items and line != category:
+                    bio_items.append(line)
 
-    # Broad scan for explicit Vietnamese job/school statements
-    for line in lines:
-        line_s = line.strip()
-        line_low = line_s.lower()
-        if any(ig in line_low for ig in IGNORE_PHRASES) or len(line_s) < 5 or len(line_s) > 120:
-            continue
-            
-        if any(kw in line_low for kw in ["làm việc tại", "chức vụ", "giám đốc tại", "quản lý tại", "founder tại", "ceo tại", "chủ tịch tại", "từng làm việc tại", "chủ sáng lập tại"]):
-            if line_s not in work_items:
-                work_items.append(line_s)
-        elif any(kw in line_low for kw in ["đã học tại", "từng học tại", "học tại", "sinh viên tại", "cựu sinh viên tại"]):
-            if line_s not in school_items:
-                school_items.append(line_s)
-
-    # Build concise combined text
-    combined_parts = []
+    parts = []
+    if category:
+        parts.append(f"Hạng mục/Lĩnh vực: {category}")
     if work_items:
-        combined_parts.append("Công việc: " + " · ".join(work_items[:3]))
+        parts.append(f"Công việc: {' · '.join(work_items[:4])}")
     if school_items:
-        combined_parts.append("Học vấn: " + " · ".join(school_items[:2]))
+        parts.append(f"Học vấn: {' · '.join(school_items[:2])}")
+    if bio_items:
+        parts.append(f"Tiểu sử/Mô tả: {' | '.join(bio_items[:2])}")
+    if contact_items:
+        parts.append(f"Liên hệ: {' · '.join(contact_items[:2])}")
         
-    full_text = " | ".join(combined_parts)
-    
+    full_text = " | ".join(parts) if parts else "Không có thông tin việc làm công khai"
     return {
-        "work": " · ".join(work_items[:3]) if work_items else "",
-        "school": " · ".join(school_items[:2]) if school_items else "",
-        "full_text": full_text if full_text else "Không có thông tin việc làm công khai"
+        "category": category,
+        "work": " · ".join(work_items[:4]),
+        "school": " · ".join(school_items[:2]),
+        "bio": " | ".join(bio_items[:2]),
+        "full_text": full_text
     }
 
 def inject_cookie_string(context, cookie_str: str):
@@ -305,17 +331,30 @@ def run_deep_profile_crawl(
             if not raw_url or not raw_url.startswith("http"):
                 continue
                 
-            about_url = get_about_url(raw_url)
+            clean_url = get_clean_profile_url(raw_url)
             
             if progress_callback:
                 progress_callback(idx + 1, total_to_crawl, f"Đang cào profile ({idx+1}/{total_to_crawl}): {name_val}")
                 
             try:
-                page.goto(about_url, timeout=30000)
-                # Wait for React DOM to render
+                # 1. First visit the clean base profile page (renders Bio, Category, Intro Card with Work/Education/Links)
+                page.goto(clean_url, timeout=30000)
                 page.wait_for_timeout(int(delay_seconds * 1000))
                 
                 info_res = extract_work_education_from_page(page)
+                
+                # 2. If no work/school/category found on main timeline, check /about page
+                if info_res["full_text"] == "Không có thông tin việc làm công khai":
+                    about_url = f"{clean_url}&sk=about" if "profile.php" in clean_url else f"{clean_url}/about"
+                    try:
+                        page.goto(about_url, timeout=20000)
+                        page.wait_for_timeout(int(delay_seconds * 800))
+                        info_about = extract_work_education_from_page(page)
+                        if info_about["full_text"] != "Không có thông tin việc làm công khai":
+                            info_res = info_about
+                    except Exception:
+                        pass
+                        
                 enriched_df.at[idx, "Thông tin cào sâu"] = info_res["full_text"]
             except Exception as e:
                 enriched_df.at[idx, "Thông tin cào sâu"] = f"Lỗi truy cập profile: {str(e)[:50]}"
