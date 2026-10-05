@@ -207,6 +207,8 @@ def load_saved_config():
                 cfg["openai_key"] = st.secrets["OPENAI_API_KEY"]
             if "TARGET_CRITERIA" in st.secrets:
                 cfg["target_criteria"] = st.secrets["TARGET_CRITERIA"]
+            if "FB_COOKIE" in st.secrets:
+                cfg["fb_cookie"] = st.secrets["FB_COOKIE"]
     except Exception:
         pass
 
@@ -215,6 +217,8 @@ def load_saved_config():
         cfg["gemini_key"] = os.getenv("GEMINI_API_KEY")
     if os.getenv("OPENAI_API_KEY") and not cfg.get("openai_key"):
         cfg["openai_key"] = os.getenv("OPENAI_API_KEY")
+    if os.getenv("FB_COOKIE") and not cfg.get("fb_cookie"):
+        cfg["fb_cookie"] = os.getenv("FB_COOKIE")
 
     # 3. Local disk config.json (persists locally)
     if os.path.exists(CONFIG_FILE):
