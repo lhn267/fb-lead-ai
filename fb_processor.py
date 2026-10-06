@@ -164,15 +164,17 @@ def merge_and_deduplicate_dfs(dfs: List[pd.DataFrame]) -> Tuple[pd.DataFrame, in
 
 def rule_based_pre_classify(text: str) -> Optional[Dict[str, Any]]:
     """
-    Fast rule-based pre-screening to detect obvious jokes or empty descriptions.
+    Fast rule-based pre-screening to detect obvious jokes, empty descriptions, or mutual-friends only.
     """
-    if not text or not isinstance(text, str):
+    if not text or not isinstance(text, str) or not text.strip():
         return {
-            "job_title": "Không xác định",
-            "company": "Không xác định",
+            "job_title": "Chưa cập nhật",
+            "company": "Chưa cập nhật",
+            "company_normalized": "Chưa cập nhật",
+            "school": "Chưa cập nhật",
             "level": "Không xác định",
             "industry": "Không rõ",
-            "status": "Không có thông tin",
+            "status": "Không có thông tin việc làm",
             "lead_tier": "Bỏ qua",
             "reason": "Không có mô tả hoặc chỉ có tên"
         }
@@ -185,18 +187,22 @@ def rule_based_pre_classify(text: str) -> Optional[Dict[str, Any]]:
             return {
                 "job_title": "Ảo / Đùa cợt",
                 "company": "Ảo",
-                "level": "Rác",
+                "company_normalized": "Ảo",
+                "school": "Chưa cập nhật",
+                "level": "Rác / Ảo",
                 "industry": "Khác",
                 "status": "Rác / Đùa cợt",
                 "lead_tier": "Bỏ qua",
                 "reason": f"Phát hiện từ khóa đùa cợt: '{kw}'"
             }
 
-    # If only contains mutual friends e.g. "15 bạn chung" or "Sống tại Hà Nội" and no "tại" / "ở" / job keywords
-    if re.search(r"^\s*\d+\s+bạn chung\s*$", text_lower):
+    # If only contains mutual friends e.g. "15 bạn chung" or "mutual friends"
+    if re.search(r"^\s*\d+\s+bạn chung\s*$", text_lower) or re.search(r"^\s*\d+\s+mutual friends\s*$", text_lower):
         return {
-            "job_title": "Không xác định",
-            "company": "Không xác định",
+            "job_title": "Chưa cập nhật",
+            "company": "Chưa cập nhật",
+            "company_normalized": "Chưa cập nhật",
+            "school": "Chưa cập nhật",
             "level": "Không xác định",
             "industry": "Không rõ",
             "status": "Không có thông tin việc làm",
@@ -548,12 +554,12 @@ def process_friends_dataframe(
                 })
         else:
             # Need to call AI API
-            # First check for quick joke pre-filters to save tokens
+            # First check for quick pre-filters (jokes, mutual friends only, blank) to save tokens & time
             ai_batch = []
             id_to_prefilter = {}
             for item in batch:
                 pre = rule_based_pre_classify(item["text"])
-                if pre and pre["status"] == "Rác / Đùa cợt":
+                if pre and pre["status"] in ["Rác / Đùa cợt", "Không có thông tin việc làm", "Không có thông tin"]:
                     id_to_prefilter[item["id"]] = pre
                 else:
                     ai_batch.append(item)
@@ -601,8 +607,9 @@ def process_friends_dataframe(
                     "Ghi chú AI": res_data.get("reason", "")
                 })
 
-            # Small polite pause to respect rate limits
-            time.sleep(1.2)
+            # Small polite pause to respect rate limits only when AI was actually called
+            if ai_batch:
+                time.sleep(1.0)
 
         # Notify progress callback
         if progress_callback:

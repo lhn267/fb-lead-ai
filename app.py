@@ -589,17 +589,26 @@ with tab_deep_crawl:
             deep_link_col = st.selectbox("Cột Link Profile Facebook", options=all_cols_deep, index=link_idx_d, key="deep_sel_link")
 
         # Crawler Settings
-        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1, col_s2, col_s3, col_s4 = st.columns([1.5, 1.5, 2, 1.5])
         with col_s1:
-            crawl_limit = st.number_input(
-                "Số lượng profile muốn cào sâu",
+            start_row = st.number_input(
+                "Bắt đầu từ người số",
                 min_value=1,
                 max_value=len(df_for_deep),
-                value=min(len(df_for_deep), 50),
-                step=5,
-                help="Nên cào mỗi đợt từ 20 đến 50 người để đảm bảo an toàn tuyệt đối cho tài khoản."
+                value=1,
+                step=10,
+                help="Vị trí bắt đầu cào trong file (Ví dụ: đợt 1 cào từ người số 1, đợt 2 từ người số 51, đợt 3 từ người số 101...)"
             )
         with col_s2:
+            crawl_limit = st.number_input(
+                "Số lượng cào đợt này",
+                min_value=1,
+                max_value=min(len(df_for_deep), 200),
+                value=min(len(df_for_deep), 50),
+                step=10,
+                help="Nên cào mỗi đợt từ 20 đến 50 người để đảm bảo an toàn tuyệt đối cho tài khoản."
+            )
+        with col_s3:
             crawl_delay = st.slider(
                 "Độ trễ an toàn giữa các profile (giây)",
                 min_value=2.0,
@@ -608,8 +617,16 @@ with tab_deep_crawl:
                 step=0.5,
                 help="Mô phỏng hành vi người thật xem trang cá nhân (3.5s là mức chuẩn an toàn)."
             )
-        with col_s3:
+        with col_s4:
             crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
+
+        calc_end_row = min(len(df_for_deep), int(start_row) + int(crawl_limit) - 1)
+        st.markdown(f"""
+        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:9px 14px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
+            <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
+            <span><b>Phạm vi cào đợt này:</b> Từ người số <b>{start_row}</b> đến <b>{calc_end_row}</b> (Tổng cộng <b>{calc_end_row - int(start_row) + 1} người</b> / {len(df_for_deep)} người trong file).</span>
+        </div>
+        """, unsafe_allow_html=True)
 
         saved_fb_cookie = saved_cfg.get("fb_cookie", "")
         with st.expander("Cấu hình Cookie Facebook (Tự động lưu vĩnh viễn, không cần nhập lại)", expanded=not bool(saved_fb_cookie)):
@@ -644,10 +661,17 @@ with tab_deep_crawl:
                 start_deep_t = time.time()
                 status_deep.text("Đang khởi động trình duyệt tự động...")
                 eff_cookie = deep_cookie.strip() if ('deep_cookie' in locals() and deep_cookie and deep_cookie.strip()) else saved_cfg.get("fb_cookie", "").strip()
+                
+                # Use existing accumulated df if valid
+                base_df = df_for_deep.copy()
+                if st.session_state.get("deep_enriched_df") is not None and len(st.session_state.deep_enriched_df) == len(df_for_deep):
+                    base_df = st.session_state.deep_enriched_df
+
                 enriched_res = run_deep_profile_crawl(
-                    df=df_for_deep,
+                    df=base_df,
                     link_col=deep_link_col,
                     name_col=deep_name_col,
+                    start_index=int(start_row),
                     max_count=int(crawl_limit),
                     delay_seconds=float(crawl_delay),
                     headless=crawl_headless,
@@ -657,22 +681,27 @@ with tab_deep_crawl:
                 st.session_state.deep_enriched_df = enriched_res
                 p_bar_deep.progress(100)
                 dur = round(time.time() - start_deep_t, 1)
-                status_deep.success(f"Hoàn tất cào sâu thông tin cho {crawl_limit} profile trong {dur} giây!")
+                status_deep.success(f"Hoàn tất cào sâu thông tin từ người #{start_row} đến #{calc_end_row} ({calc_end_row - int(start_row) + 1} profile) trong {dur} giây!")
             except Exception as e:
                 st.error(f"Lỗi khi cào sâu profile: {e}")
 
         # If we have deep enriched results
         if st.session_state.get("deep_enriched_df") is not None:
             res_deep_df = st.session_state.deep_enriched_df
+            has_info_mask = res_deep_df["Thông tin cào sâu"].astype(str).str.strip().ne("") & ~res_deep_df["Thông tin cào sâu"].isna()
+            crawled_count = int(has_info_mask.sum())
+
             st.markdown("---")
             st.markdown(f'''
             <div class="section-title">
                 <span class="icon-pill icon-pill-blue">{get_svg_icon('clipboard', 20, '#2563EB')}</span>
-                <span>Kết quả cào sâu trực tiếp từ trang cá nhân:</span>
+                <span>Kết quả cào sâu trực tiếp từ trang cá nhân ({crawled_count} / {len(res_deep_df)} người đã cào):</span>
             </div>
             ''', unsafe_allow_html=True)
+            
+            show_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(crawl_limit))
             st.dataframe(
-                res_deep_df[[deep_name_col, deep_link_col, "Thông tin cào sâu"]].head(int(crawl_limit) if 'crawl_limit' in locals() else 50),
+                show_df[[deep_name_col, deep_link_col, "Thông tin cào sâu"]],
                 use_container_width=True
             )
 
@@ -690,7 +719,7 @@ with tab_deep_crawl:
                 eff_provider = provider_code if api_key else "offline"
                 eff_key = api_key if api_key else None
 
-                sub_df = res_deep_df.head(int(crawl_limit) if 'crawl_limit' in locals() else len(res_deep_df))
+                sub_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(crawl_limit))
                 ai_output = process_friends_dataframe(
                     df=sub_df,
                     name_col=deep_name_col,

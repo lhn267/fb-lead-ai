@@ -215,6 +215,7 @@ def run_deep_profile_crawl(
     df: pd.DataFrame,
     link_col: str,
     name_col: str,
+    start_index: int = 1,
     max_count: int = 50,
     delay_seconds: float = 3.5,
     headless: bool = True,
@@ -231,7 +232,9 @@ def run_deep_profile_crawl(
     if "Thông tin cào sâu" not in enriched_df.columns:
         enriched_df["Thông tin cào sâu"] = ""
         
-    total_to_crawl = min(len(enriched_df), max_count)
+    start_pos = max(0, int(start_index) - 1)
+    end_pos = min(len(enriched_df), start_pos + int(max_count))
+    total_to_crawl = max(0, end_pos - start_pos)
     
     browser = None
     context = None
@@ -328,7 +331,7 @@ def run_deep_profile_crawl(
             if progress_callback:
                 progress_callback(0, total_to_crawl, "Lưu ý: Chưa đăng nhập Facebook trong phiên duyệt. Đang cào ở chế độ Công khai...")
 
-        for idx in range(total_to_crawl):
+        for curr_i, idx in enumerate(range(start_pos, end_pos)):
             row = enriched_df.iloc[idx]
             raw_url = str(row.get(link_col, "")).strip()
             name_val = str(row.get(name_col, f"Người {idx+1}")).strip()
@@ -339,7 +342,7 @@ def run_deep_profile_crawl(
             clean_url = get_clean_profile_url(raw_url)
             
             if progress_callback:
-                progress_callback(idx + 1, total_to_crawl, f"Đang cào profile ({idx+1}/{total_to_crawl}): {name_val}")
+                progress_callback(curr_i + 1, total_to_crawl, f"Đang cào profile #{idx+1} ({curr_i+1}/{total_to_crawl}): {name_val}")
                 
             try:
                 # 1. First visit the clean base profile page (renders Bio, Category, Intro Card with Work/Education/Links)
@@ -360,9 +363,9 @@ def run_deep_profile_crawl(
                     except Exception:
                         pass
                         
-                enriched_df.at[idx, "Thông tin cào sâu"] = info_res["full_text"]
+                enriched_df.at[enriched_df.index[idx], "Thông tin cào sâu"] = info_res["full_text"]
             except Exception as e:
-                enriched_df.at[idx, "Thông tin cào sâu"] = f"Lỗi truy cập profile: {str(e)[:50]}"
+                enriched_df.at[enriched_df.index[idx], "Thông tin cào sâu"] = f"Lỗi truy cập profile: {str(e)[:50]}"
                 
         if browser:
             browser.close()
