@@ -12,6 +12,8 @@ fb_chrome_session/
 # Scraped / temporary customer lead files
 *.xlsx
 *.csv
+*.parquet
+*_autosave.*
 !sample_test_data.csv
 !sample_test_data.xlsx
 

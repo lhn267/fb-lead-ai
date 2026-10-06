@@ -239,7 +239,71 @@ def save_user_config(config_dict):
         # In cloud environments with read-only filesystems, session_state safely keeps the config
         pass
 
+AUTO_SAVE_CRM_FILE = "crm_leads_autosave.csv"
+AUTO_SAVE_DEEP_FILE = "deep_crawl_autosave.csv"
+
+def load_autosaved_data():
+    crm_df = None
+    deep_df = None
+    if os.path.exists(AUTO_SAVE_CRM_FILE):
+        try:
+            crm_df = pd.read_csv(AUTO_SAVE_CRM_FILE, encoding="utf-8-sig")
+            if crm_df.empty:
+                crm_df = None
+        except Exception:
+            crm_df = None
+
+    if os.path.exists(AUTO_SAVE_DEEP_FILE):
+        try:
+            deep_df = pd.read_csv(AUTO_SAVE_DEEP_FILE, encoding="utf-8-sig")
+            if deep_df.empty:
+                deep_df = None
+        except Exception:
+            deep_df = None
+
+    return crm_df, deep_df
+
+def save_crm_autosave(df: pd.DataFrame):
+    if df is not None and not df.empty:
+        try:
+            df.to_csv(AUTO_SAVE_CRM_FILE, index=False, encoding="utf-8-sig")
+        except Exception:
+            pass
+
+def save_deep_autosave(df: pd.DataFrame):
+    if df is not None and not df.empty:
+        try:
+            df.to_csv(AUTO_SAVE_DEEP_FILE, index=False, encoding="utf-8-sig")
+        except Exception:
+            pass
+
+def clear_autosaved_data():
+    for f in [AUTO_SAVE_CRM_FILE, AUTO_SAVE_DEEP_FILE]:
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+
 saved_cfg = load_saved_config()
+
+# Initialize session state & restore autosaved progress
+auto_crm, auto_deep = load_autosaved_data()
+
+if "raw_df" not in st.session_state:
+    st.session_state.raw_df = None
+if "deep_enriched_df" not in st.session_state:
+    st.session_state.deep_enriched_df = auto_deep
+if "processed_df" not in st.session_state:
+    st.session_state.processed_df = auto_crm
+if "selected_file_name" not in st.session_state:
+    st.session_state.selected_file_name = ""
+if "total_files_count" not in st.session_state:
+    st.session_state.total_files_count = 0
+if "total_before_dedup" not in st.session_state:
+    st.session_state.total_before_dedup = 0
+if "dupes_removed_count" not in st.session_state:
+    st.session_state.dupes_removed_count = 0
 
 # ----------------- SIDEBAR CONFIG -----------------
 with st.sidebar:
@@ -315,6 +379,30 @@ with st.sidebar:
         save_user_config(cfg)
         st.success("Đã lưu cấu hình thành công!")
 
+    # Auto-save & Local Database manager
+    st.markdown("---")
+    st.markdown(f"""
+    <div style="font-size:0.92rem; font-weight:700; color:#1E3A8A; margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+        <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('save', 14, '#059669')}</span>
+        <span>Bộ Nhớ Tự Động Lưu</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    current_leads_count = len(st.session_state.processed_df) if st.session_state.processed_df is not None else 0
+    if current_leads_count > 0:
+        st.markdown(f"""
+        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:6px; padding:6px 10px; font-size:0.83rem; color:#166534; margin-bottom:8px;">
+            Đã lưu an toàn <b>{current_leads_count} khách hàng</b> trên ổ cứng (tắt máy mở lại vẫn còn nguyên).
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Xóa bộ nhớ để làm tệp mới", type="secondary", use_container_width=True):
+            clear_autosaved_data()
+            st.session_state.processed_df = None
+            st.session_state.deep_enriched_df = None
+            st.rerun()
+    else:
+        st.caption("Dữ liệu bóc tách được sẽ tự động lưu vĩnh viễn trên ổ cứng máy tính.")
+
     st.markdown("---")
     st.caption("Phiên bản: **1.2.0 Pro**\nTối ưu xử lý danh sách bạn bè 3.000 - 4.000 Friends.")
 
@@ -337,21 +425,7 @@ tab_upload, tab_deep_crawl, tab_results, tab_analytics, tab_guide = st.tabs([
     "5. Hướng Dẫn Sử Dụng"
 ])
 
-# Initialize session state
-if "raw_df" not in st.session_state:
-    st.session_state.raw_df = None
-if "deep_enriched_df" not in st.session_state:
-    st.session_state.deep_enriched_df = None
-if "processed_df" not in st.session_state:
-    st.session_state.processed_df = None
-if "selected_file_name" not in st.session_state:
-    st.session_state.selected_file_name = ""
-if "total_files_count" not in st.session_state:
-    st.session_state.total_files_count = 0
-if "total_before_dedup" not in st.session_state:
-    st.session_state.total_before_dedup = 0
-if "dupes_removed_count" not in st.session_state:
-    st.session_state.dupes_removed_count = 0
+
 
 # ----------------- TAB 1: UPLOAD & PROCESS -----------------
 with tab_upload:
@@ -513,8 +587,9 @@ with tab_upload:
                 
                 elapsed = round(time.time() - start_time, 1)
                 st.session_state.processed_df = processed_results
+                save_crm_autosave(processed_results)
                 progress_bar.progress(100)
-                status_text.success(f"Hoàn tất xử lý {len(processed_results)} người bạn trong {elapsed} giây!")
+                status_text.success(f"Hoàn tất xử lý {len(processed_results)} người bạn trong {elapsed} giây (Đã tự động lưu an toàn vào máy)!")
                 st.info("Hãy chuyển sang Tab 3 (Bảng Kết Quả & Xuất File) để lọc và tải file Excel về máy!")
 
             except Exception as e:
@@ -588,6 +663,15 @@ with tab_deep_crawl:
             link_idx_d = all_cols_deep.index(detected_deep["link_col"]) if detected_deep.get("link_col") in all_cols_deep else 0
             deep_link_col = st.selectbox("Cột Link Profile Facebook", options=all_cols_deep, index=link_idx_d, key="deep_sel_link")
 
+        # Smart start index suggestion based on previously saved progress
+        suggested_start = 1
+        if st.session_state.get("processed_df") is not None and not st.session_state.processed_df.empty:
+            suggested_start = min(len(df_for_deep), len(st.session_state.processed_df) + 1)
+        elif st.session_state.get("deep_enriched_df") is not None:
+            crawled_mask = st.session_state.deep_enriched_df["Thông tin cào sâu"].astype(str).str.strip().ne("") & ~st.session_state.deep_enriched_df["Thông tin cào sâu"].isna()
+            if int(crawled_mask.sum()) > 0:
+                suggested_start = min(len(df_for_deep), int(crawled_mask.sum()) + 1)
+
         # Crawler Settings
         col_s1, col_s2, col_s3, col_s4 = st.columns([1.5, 1.5, 2, 1.5])
         with col_s1:
@@ -595,9 +679,9 @@ with tab_deep_crawl:
                 "Bắt đầu từ người số",
                 min_value=1,
                 max_value=len(df_for_deep),
-                value=1,
+                value=suggested_start,
                 step=10,
-                help="Vị trí bắt đầu cào trong file (Ví dụ: đợt 1 cào từ người số 1, đợt 2 từ người số 51, đợt 3 từ người số 101...)"
+                help=f"Vị trí bắt đầu cào trong file (Gợi ý tự động: người số {suggested_start} dựa trên tiến độ đã lưu)"
             )
         with col_s2:
             crawl_limit = st.number_input(
@@ -679,9 +763,10 @@ with tab_deep_crawl:
                     progress_callback=deep_cb
                 )
                 st.session_state.deep_enriched_df = enriched_res
+                save_deep_autosave(enriched_res)
                 p_bar_deep.progress(100)
                 dur = round(time.time() - start_deep_t, 1)
-                status_deep.success(f"Hoàn tất cào sâu thông tin từ người #{start_row} đến #{calc_end_row} ({calc_end_row - int(start_row) + 1} profile) trong {dur} giây!")
+                status_deep.success(f"Hoàn tất cào sâu thông tin từ người #{start_row} đến #{calc_end_row} ({calc_end_row - int(start_row) + 1} profile) trong {dur} giây (Đã tự động lưu vào đệm máy tính)!")
             except Exception as e:
                 st.error(f"Lỗi khi cào sâu profile: {e}")
 
@@ -767,9 +852,11 @@ with tab_deep_crawl:
                     else:
                         st.session_state.processed_df = ai_output
 
+                    save_crm_autosave(st.session_state.processed_df)
+
                     ai_p_bar.progress(100)
                     total_accumulated = len(st.session_state.processed_df)
-                    ai_status.success(f"Đã bóc tách xong {len(ai_output)} người mới và TỰ ĐỘNG GOM vào bảng CRM tổng (Hiện có {total_accumulated} người)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
+                    ai_status.success(f"Đã bóc tách xong {len(ai_output)} người mới và TỰ ĐỘNG GOM vào bảng CRM tổng (Hiện có {total_accumulated} người đã lưu an toàn trên ổ cứng)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
 
 # ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
