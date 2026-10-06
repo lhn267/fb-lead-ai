@@ -817,19 +817,21 @@ with tab_deep_crawl:
                 eff_provider = provider_code if api_key else "offline"
                 eff_key = api_key if api_key else None
 
-                all_crawled_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(crawl_limit))
-
-                # Check which profiles have already been processed in CRM to avoid re-running them
-                existing_crm = st.session_state.get("processed_df")
-                if existing_crm is not None and not existing_crm.empty and "Link Facebook" in existing_crm.columns:
-                    already_links = set(existing_crm["Link Facebook"].dropna().astype(str).str.strip())
-                    sub_df = all_crawled_df[~all_crawled_df[deep_link_col].astype(str).str.strip().isin(already_links)]
+                # Target the current selected batch of profiles
+                start_pos = max(0, int(start_row) - 1)
+                end_pos = min(len(res_deep_df), start_pos + int(crawl_limit))
+                current_batch_df = res_deep_df.iloc[start_pos:end_pos]
+                
+                # Check if current batch has crawled info; if not, fallback to all with info
+                curr_has_info = current_batch_df["Thông tin cào sâu"].astype(str).str.strip().ne("") & ~current_batch_df["Thông tin cào sâu"].isna()
+                if curr_has_info.sum() > 0:
+                    sub_df = current_batch_df[curr_has_info]
                 else:
-                    sub_df = all_crawled_df
+                    sub_df = res_deep_df[has_info_mask] if crawled_count > 0 else current_batch_df
 
                 if sub_df.empty:
                     ai_p_bar.progress(100)
-                    ai_status.info("Tất cả profile bạn vừa cào sâu đều đã được AI phân tích trước đó! Hãy sang Tab 3 để tải 1 file Excel tổng.")
+                    ai_status.warning("Chưa có thông tin cào sâu nào trong đợt này. Vui lòng bấm nút 'Bắt đầu cào sâu' trước khi chuyển cho AI!")
                 else:
                     ai_output = process_friends_dataframe(
                         df=sub_df,
@@ -844,10 +846,12 @@ with tab_deep_crawl:
                         progress_callback=update_deep_ai_p
                     )
 
-                    # GOM tự động vào bảng CRM tổng (Tab 3)
-                    if existing_crm is not None and not existing_crm.empty:
-                        combined_crm = pd.concat([existing_crm, ai_output], ignore_index=True)
-                        combined_crm = combined_crm.drop_duplicates(subset=["Link Facebook"], keep="last")
+                    # GOM thông minh: Cập nhật đè nếu cào lại, thêm mới nối tiếp nếu là người mới
+                    existing_crm = st.session_state.get("processed_df")
+                    if existing_crm is not None and not existing_crm.empty and "Link Facebook" in existing_crm.columns:
+                        batch_links = set(ai_output["Link Facebook"].dropna().astype(str).str.strip())
+                        existing_preserved = existing_crm[~existing_crm["Link Facebook"].astype(str).str.strip().isin(batch_links)]
+                        combined_crm = pd.concat([existing_preserved, ai_output], ignore_index=True)
                         st.session_state.processed_df = combined_crm
                     else:
                         st.session_state.processed_df = ai_output
@@ -856,7 +860,7 @@ with tab_deep_crawl:
 
                     ai_p_bar.progress(100)
                     total_accumulated = len(st.session_state.processed_df)
-                    ai_status.success(f"Đã bóc tách xong {len(ai_output)} người mới và TỰ ĐỘNG GOM vào bảng CRM tổng (Hiện có {total_accumulated} người đã lưu an toàn trên ổ cứng)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
+                    ai_status.success(f"Đã bóc tách và CẬP NHẬT thành công {len(ai_output)} người vào bảng CRM tổng (Hiện có {total_accumulated} người đã lưu an toàn trên ổ cứng)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
 
 # ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
