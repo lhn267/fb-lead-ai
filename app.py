@@ -705,36 +705,71 @@ with tab_deep_crawl:
                 use_container_width=True
             )
 
-            # Button to send immediately to AI
-            if st.button("CHUYỂN DỮ LIỆU NÀY CHO AI BÓC TÁCH & PHÂN LOẠI CRM NGAY", type="primary", use_container_width=True):
-                # Run AI on this enriched dataframe
+            # Action buttons for Tab 2
+            act_col1, act_col2 = st.columns([3, 2])
+            with act_col1:
+                handoff_btn = st.button("CHUYỂN DỮ LIỆU CHO AI BÓC TÁCH & TỰ ĐỘNG GỘP VÀO CRM", type="primary", use_container_width=True)
+            with act_col2:
+                raw_crawled_bytes = export_styled_excel(show_df)
+                st.download_button(
+                    label="Tải File Thô Cào Sâu (.xlsx)",
+                    data=raw_crawled_bytes,
+                    file_name="facebook_crawled_raw.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            if handoff_btn:
+                # Run AI on enriched dataframe
                 ai_p_bar = st.progress(0)
                 ai_status = st.empty()
 
                 def update_deep_ai_p(done, total):
-                    pct = int((done / total) * 100)
+                    pct = int((done / total) * 100) if total > 0 else 0
                     ai_p_bar.progress(pct)
                     ai_status.text(f"AI đang bóc tách: {done}/{total} người ({pct}%)...")
 
                 eff_provider = provider_code if api_key else "offline"
                 eff_key = api_key if api_key else None
 
-                sub_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(crawl_limit))
-                ai_output = process_friends_dataframe(
-                    df=sub_df,
-                    name_col=deep_name_col,
-                    link_col=deep_link_col,
-                    info_cols=["Thông tin cào sâu"],
-                    api_key=eff_key,
-                    api_provider=eff_provider,
-                    model_name=model_name,
-                    target_criteria=target_criteria,
-                    batch_size=batch_size,
-                    progress_callback=update_deep_ai_p
-                )
-                st.session_state.processed_df = ai_output
-                ai_p_bar.progress(100)
-                ai_status.success("Đã hoàn tất phân loại CRM bằng AI! Hãy chuyển sang Tab 3 (Bảng Kết Quả & Xuất File) để xem và tải Excel!")
+                all_crawled_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(crawl_limit))
+
+                # Check which profiles have already been processed in CRM to avoid re-running them
+                existing_crm = st.session_state.get("processed_df")
+                if existing_crm is not None and not existing_crm.empty and "Link Facebook" in existing_crm.columns:
+                    already_links = set(existing_crm["Link Facebook"].dropna().astype(str).str.strip())
+                    sub_df = all_crawled_df[~all_crawled_df[deep_link_col].astype(str).str.strip().isin(already_links)]
+                else:
+                    sub_df = all_crawled_df
+
+                if sub_df.empty:
+                    ai_p_bar.progress(100)
+                    ai_status.info("Tất cả profile bạn vừa cào sâu đều đã được AI phân tích trước đó! Hãy sang Tab 3 để tải 1 file Excel tổng.")
+                else:
+                    ai_output = process_friends_dataframe(
+                        df=sub_df,
+                        name_col=deep_name_col,
+                        link_col=deep_link_col,
+                        info_cols=["Thông tin cào sâu"],
+                        api_key=eff_key,
+                        api_provider=eff_provider,
+                        model_name=model_name,
+                        target_criteria=target_criteria,
+                        batch_size=batch_size,
+                        progress_callback=update_deep_ai_p
+                    )
+
+                    # GOM tự động vào bảng CRM tổng (Tab 3)
+                    if existing_crm is not None and not existing_crm.empty:
+                        combined_crm = pd.concat([existing_crm, ai_output], ignore_index=True)
+                        combined_crm = combined_crm.drop_duplicates(subset=["Link Facebook"], keep="last")
+                        st.session_state.processed_df = combined_crm
+                    else:
+                        st.session_state.processed_df = ai_output
+
+                    ai_p_bar.progress(100)
+                    total_accumulated = len(st.session_state.processed_df)
+                    ai_status.success(f"Đã bóc tách xong {len(ai_output)} người mới và TỰ ĐỘNG GOM vào bảng CRM tổng (Hiện có {total_accumulated} người)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
 
 # ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
