@@ -14,7 +14,7 @@ JOKE_KEYWORDS = [
     "chém gió", "tại nhà", "ở nhà", "ăn bám", "tâm thần", "thất nghiệp",
     "độc thân", "làm gì có việc", "bán muối", "đại học bôn ba", "học viện lừa đảo",
     "chơi game", "nằm ngủ", "nuôi lợn", "la cà", "trộm chó", "thất tình",
-    "học sinh cá biệt", "bụi đời", "không có", "đang thất nghiệp"
+    "học sinh cá biệt", "bụi đời", "đang thất nghiệp"
 ]
 
 def detect_columns(df: pd.DataFrame) -> Dict[str, Any]:
@@ -181,6 +181,33 @@ def rule_based_pre_classify(text: str) -> Optional[Dict[str, Any]]:
 
     text_lower = text.lower().strip()
 
+    # Intercept profiles with no work/school info or Facebook's standard empty placeholders
+    no_info_patterns = [
+        "không có thông tin việc làm công khai",
+        "no workplaces to show",
+        "no schools/universities to show",
+        "không có thông tin",
+        "chưa cập nhật thông tin việc làm"
+    ]
+    if any(p in text_lower for p in no_info_patterns):
+        # Verify if there is any other actual info in the text (like a bio or job title)
+        stripped = text_lower
+        for p in no_info_patterns:
+            stripped = stripped.replace(p, "")
+        stripped = re.sub(r"(tiểu sử/mô tả:|công việc:|hạng mục/lĩnh vực:|học vấn:|university|high school|\d+\s+bạn chung|\d+\s+mutual friends|[·|\n\r\t,])", " ", stripped).strip()
+        if not stripped or len(stripped) < 3:
+            return {
+                "job_title": "Chưa cập nhật",
+                "company": "Chưa cập nhật",
+                "company_normalized": "Chưa cập nhật",
+                "school": "Chưa cập nhật",
+                "level": "Không xác định",
+                "industry": "Không rõ",
+                "status": "Không có thông tin việc làm",
+                "lead_tier": "Bỏ qua",
+                "reason": "Chưa cài đặt thông tin việc làm công khai trên Facebook"
+            }
+
     # Check for joke keywords
     for kw in JOKE_KEYWORDS:
         if kw in text_lower:
@@ -281,54 +308,70 @@ Trả về DUY NHẤT một mảng JSON thuần túy (không kèm giải thích 
 """
     return prompt
 
-def call_gemini_api(prompt: str, api_key: str, model: str = "gemini-2.5-flash") -> List[Dict[str, Any]]:
+def call_gemini_api(prompt: str, api_key: str, model: str = "gemini-2.5-flash-lite") -> List[Dict[str, Any]]:
     """
     Calls Google Gemini REST API directly with structured output format.
+    Automatically handles rate limits (429) by switching to high-quota models like gemini-2.5-flash-lite.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json"
-        }
-    }
-
     headers = {"Content-Type": "application/json"}
     
-    # Retry logic
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
-            if response.status_code == 200:
-                result = response.json()
-                text_content = result["candidates"][0]["content"]["parts"][0]["text"]
-                # Clean up any residual markdown wrappers
-                text_clean = text_content.strip()
-                if text_clean.startswith("```json"):
-                    text_clean = text_clean[7:]
-                if text_clean.startswith("```"):
-                    text_clean = text_clean[3:]
-                if text_clean.endswith("```"):
-                    text_clean = text_clean[:-3]
-                return json.loads(text_clean.strip())
-            elif response.status_code == 429:
-                # Rate limited, wait and retry
-                time.sleep(3 * (attempt + 1))
-            else:
-                error_msg = response.text
-                if attempt == max_retries - 1:
-                    raise Exception(f"Gemini API Error ({response.status_code}): {error_msg}")
-                time.sleep(2)
-        except json.JSONDecodeError as je:
-            raise Exception(f"Lỗi phân tích JSON từ AI: {str(je)}")
-        except Exception as e:
-            if attempt == max_retries - 1:
-                raise e
-            time.sleep(2)
+    # Models to attempt in order if quota limit 429 is encountered
+    candidate_models = [model]
+    for fallback in ["gemini-2.5-flash-lite", "gemini-flash-latest"]:
+        if fallback not in candidate_models:
+            candidate_models.append(fallback)
+
+    last_error = None
+
+    for curr_model in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{curr_model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json"
+            }
+        }
+
+        # Up to 2 retries per candidate model
+        for attempt in range(2):
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=60)
+                if response.status_code == 200:
+                    result = response.json()
+                    text_content = result["candidates"][0]["content"]["parts"][0]["text"]
+                    text_clean = text_content.strip()
+                    if text_clean.startswith("```json"):
+                        text_clean = text_clean[7:]
+                    elif text_clean.startswith("```"):
+                        text_clean = text_clean[3:]
+                    if text_clean.endswith("```"):
+                        text_clean = text_clean[:-3]
+                    text_clean = text_clean.strip()
+                    
+                    try:
+                        return json.loads(text_clean)
+                    except json.JSONDecodeError:
+                        m = re.search(r"\[\s*\{.*\}\s*\]", text_clean, re.DOTALL)
+                        if m:
+                            return json.loads(m.group(0))
+                        raise
+                elif response.status_code == 429:
+                    # Rate limit exceeded: wait briefly and try fallback model if available
+                    time.sleep(2 * (attempt + 1))
+                    last_error = f"Gemini 429 Quota Exceeded on {curr_model}"
+                    continue
+                else:
+                    last_error = f"Gemini API Error ({response.status_code}): {response.text}"
+                    time.sleep(1.5)
+            except Exception as e:
+                last_error = str(e)
+                time.sleep(1.5)
+
+    if last_error:
+        raise Exception(f"AI Batch Failed after fallback: {last_error}")
     return []
 
 def call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> List[Dict[str, Any]]:
@@ -365,15 +408,37 @@ def call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> Li
 
 def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
     """
-    Offline fallback parser when no API key is provided.
-    Extracts patterns using regex and dictionaries.
+    Offline fallback parser when no API key is provided or AI is unavailable.
+    Extracts patterns using regex and dictionaries cleanly without raw metadata labels.
     """
     text_str = str(text) if pd.notna(text) else ""
     rule_res = rule_based_pre_classify(text_str)
     if rule_res:
         rule_res["company_normalized"] = rule_res.get("company", "Chưa cập nhật")
-        rule_res["school"] = "Chưa cập nhật"
+        rule_res["school"] = rule_res.get("school", "Chưa cập nhật")
         return rule_res
+
+    # Clean text: remove deep crawl prefixes and metadata labels
+    cleaned = text_str
+    cleaned = re.sub(r"(?i)\b(Tiểu sử/Mô tả|Hạng mục/Lĩnh vực|Công việc|Học vấn|Sống tại|Liên hệ):\s*", "", cleaned)
+    cleaned = re.sub(r"(?i)\bno workplaces to show\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\bno schools/universities to show\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\b\d+\s+bạn chung\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\b\d+\s+mutual friends\b", "", cleaned)
+    cleaned = cleaned.strip(" ·|\n\r\t,")
+
+    if not cleaned or len(cleaned) < 3:
+        return {
+            "job_title": "Chưa cập nhật",
+            "company": "Chưa cập nhật",
+            "company_normalized": "Chưa cập nhật",
+            "school": "Chưa cập nhật",
+            "level": "Không xác định",
+            "industry": "Không rõ",
+            "status": "Không có thông tin việc làm",
+            "lead_tier": "Bỏ qua",
+            "reason": "Chưa cài đặt thông tin việc làm công khai trên Facebook"
+        }
 
     job_title = "Chưa cập nhật"
     company = "Chưa cập nhật"
@@ -384,38 +449,65 @@ def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
     lead_tier = "Tiềm năng trung bình"
     industry = "Khác"
 
-    text_lower = text_str.lower()
+    cleaned_lower = cleaned.lower()
 
-    # Detect School
-    school_match = re.search(r"((?:trường\s+)?đại\s+học[^\·\n,]+|hutech[^\·\n,]*|học\s+viện[^\·\n,]+|cao\s+đẳng[^\·\n,]+)", text_str, re.IGNORECASE)
+    # Detect School first
+    school_match = re.search(r"((?:trường\s+)?đại\s+học[^\·\n,|]+|hutech[^\·\n,|]*|học\s+viện[^\·\n,|]+|cao\s+đẳng[^\·\n,|]+)", cleaned, re.IGNORECASE)
     if school_match:
         school = school_match.group(1).strip()
-        level = "Sinh viên / Học sinh"
-        job_title = "Sinh viên"
-        industry = "Giáo dục"
 
-    # Try matching "tại <Company>"
-    match_company = re.search(r"tại\s+([^·,\n]+)", text_str, re.IGNORECASE)
-    if match_company:
-        comp_candidate = match_company.group(1).strip()
-        # If candidate is a school, assign to school instead of company
-        if any(sk in comp_candidate.lower() for sk in ["đại học", "cao đẳng", "học viện", "hutech", "neu"]):
-            if school == "Chưa cập nhật":
-                school = comp_candidate
-                level = "Sinh viên / Học sinh"
-                job_title = "Sinh viên"
-                industry = "Giáo dục"
-        else:
-            company = comp_candidate
+    # Split into segments by | or ·
+    segments = [s.strip() for s in re.split(r"[·|]", cleaned) if s.strip()]
 
-    # Try matching job
-    match_job = re.search(r"^([^·\n]+?)\s+tại", text_str, re.IGNORECASE)
-    if match_job:
-        job_title = match_job.group(1).strip()
-    elif "tại" not in text_str and len(text_str.split("·")[0].strip()) > 3 and not re.search(r"^\s*\d+\s+bạn chung", text_str):
-        first_part = text_str.split("·")[0].strip()
-        if not any(sk in first_part.lower() for sk in ["đại học", "cao đẳng", "học viện", "hutech", "neu"]):
-            job_title = first_part
+    found_job = None
+    found_company = None
+
+    for seg in segments:
+        seg_clean = seg.strip()
+        seg_lower = seg_clean.lower()
+        if "no workplaces" in seg_lower or "no schools" in seg_lower or "bạn chung" in seg_lower:
+            continue
+
+        # Check for "Works at <Company>" or "Làm việc tại <Company>"
+        m_works = re.match(r"^(?:Works at|Làm việc tại)\s+(.+)$", seg_clean, re.IGNORECASE)
+        if m_works:
+            c = m_works.group(1).strip()
+            if not any(sk in c.lower() for sk in ["đại học", "cao đẳng", "học viện", "hutech", "neu"]):
+                found_company = c
+                if not found_job:
+                    found_job = "Nhân sự / Thành viên"
+            elif school == "Chưa cập nhật":
+                school = c
+            continue
+
+        # Check for "<Job> at/tại <Company>"
+        m_job_comp = re.search(r"^(.+?)\s+(?:tại|at)\s+(.+)$", seg_clean, re.IGNORECASE)
+        if m_job_comp:
+            cand_job = m_job_comp.group(1).strip()
+            cand_comp = m_job_comp.group(2).strip()
+
+            if re.match(r"^(?:Studied|Học|Đã học)\b", cand_job, re.IGNORECASE):
+                if school == "Chưa cập nhật":
+                    school = cand_comp
+                continue
+
+            if any(sk in cand_comp.lower() for sk in ["đại học", "cao đẳng", "học viện", "hutech", "neu"]):
+                if school == "Chưa cập nhật":
+                    school = cand_comp
+            else:
+                if not found_job or any(ck in cand_job.lower() for ck in ["ceo", "founder", "giám đốc", "director", "owner", "chủ", "co-founder"]):
+                    found_job = cand_job
+                    found_company = cand_comp
+            continue
+
+        if not found_job and not any(sk in seg_lower for sk in ["đại học", "cao đẳng", "học viện", "hutech", "neu", "studied", "học"]):
+            if len(seg_clean) < 60:
+                found_job = seg_clean
+
+    if found_job:
+        job_title = found_job
+    if found_company:
+        company = found_company
 
     # Normalize company name
     if company != "Chưa cập nhật":
@@ -434,20 +526,22 @@ def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
         company_normalized = "Chưa cập nhật"
 
     # Level classification
-    if any(k in text_lower for k in ["ceo", "founder", "sáng lập", "tổng giám đốc", "chủ tịch", "chủ chuỗi", "chủ shop", "chủ"]):
+    comb_lower = (job_title + " " + cleaned_lower).lower()
+    if any(k in comb_lower for k in ["ceo", "founder", "sáng lập", "tổng giám đốc", "chủ tịch", "chủ chuỗi", "chủ shop", "chủ", "co-founder"]):
         level = "C-Level / Chủ DN"
         lead_tier = "Tiềm năng cao"
-    elif any(k in text_lower for k in ["giám đốc", "trưởng phòng", "head of", "quản lý", "trưởng nhóm", "team lead", "director"]):
+    elif any(k in comb_lower for k in ["giám đốc", "trưởng phòng", "head of", "quản lý", "trưởng nhóm", "team lead", "director", "manager"]):
         level = "Quản lý / Trưởng phòng"
         lead_tier = "Tiềm năng cao"
-    elif any(k in text_lower for k in ["kỹ sư", "chuyên viên", "bác sĩ", "luật sư", "senior", "developer", "architect"]):
+    elif any(k in comb_lower for k in ["kỹ sư", "chuyên viên", "bác sĩ", "luật sư", "senior", "developer", "architect", "expert", "chuyên gia"]):
         level = "Chuyên viên / Kỹ sư"
         lead_tier = "Tiềm năng trung bình"
-    elif school != "Chưa cập nhật" and company == "Chưa cập nhật":
+    elif school != "Chưa cập nhật" and company == "Chưa cập nhật" and job_title in ["Chưa cập nhật", "Sinh viên"]:
         level = "Sinh viên / Học sinh"
         lead_tier = "Tiềm năng thấp"
+        job_title = "Sinh viên"
         status = "Hợp lệ"
-    elif any(k in text_lower for k in ["freelance", "tự do"]):
+    elif any(k in comb_lower for k in ["freelance", "tự do"]):
         level = "Freelance / Tự do"
         lead_tier = "Tiềm năng thấp"
     else:
@@ -456,18 +550,22 @@ def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
             lead_tier = "Bỏ qua"
 
     # Industry detection
-    if any(k in text_lower for k in ["bất động sản", "đất xanh", "sun group", "vingroup", "nhà đất"]):
+    if any(k in comb_lower for k in ["bất động sản", "real estate", "đất xanh", "sun group", "vingroup", "nhà đất"]):
         industry = "Bất động sản"
-    elif any(k in text_lower for k in ["công nghệ", "tech", "fpt", "software", "solution", "it", "gcw"]):
+    elif any(k in comb_lower for k in ["công nghệ", "tech", "fpt", "software", "solution", "it", "gcw", "ai"]):
         industry = "Công nghệ thông tin"
-    elif any(k in text_lower for k in ["cà phê", "coffee", "f&b", "ẩm thực", "nhà hàng", "món ngon"]):
+    elif any(k in comb_lower for k in ["cà phê", "coffee", "f&b", "ẩm thực", "nhà hàng", "món ngon", "wines"]):
         industry = "F&B / Ẩm thực"
-    elif any(k in text_lower for k in ["marketing", "media", "agency", "quảng cáo"]):
+    elif any(k in comb_lower for k in ["marketing", "media", "agency", "quảng cáo", "communications", "training"]):
         industry = "Marketing & Truyền thông"
-    elif any(k in text_lower for k in ["chứng khoán", "ngân hàng", "bank", "tài chính", "đầu tư"]):
+    elif any(k in comb_lower for k in ["chứng khoán", "ngân hàng", "bank", "tài chính", "đầu tư", "tax", "thuế"]):
         industry = "Tài chính / Ngân hàng"
-    elif any(k in text_lower for k in ["thời trang", "boutique", "spa", "thẩm mỹ", "viona"]):
+    elif any(k in comb_lower for k in ["thời trang", "boutique", "spa", "thẩm mỹ", "viona", "luxury"]):
         industry = "Dịch vụ & Làm đẹp"
+    elif any(k in comb_lower for k in ["logistics", "transport", "vận tải", "giao nhận"]):
+        industry = "Vận tải / Logistics"
+    elif any(k in comb_lower for k in ["build", "design", "thiết kế", "kiến trúc", "xây dựng", "thước tầm"]):
+        industry = "Xây dựng / Kiến trúc"
 
     return {
         "job_title": job_title,

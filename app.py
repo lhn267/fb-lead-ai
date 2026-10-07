@@ -338,8 +338,9 @@ with st.sidebar:
         )
         model_name = st.selectbox(
             "Model Gemini",
-            ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"],
-            index=0
+            ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"],
+            index=0,
+            help="gemini-2.5-flash-lite là model thế hệ mới tốc độ cao, hạn mức quota lớn nhất, không bị nghẽn 429."
         )
     elif "OpenAI" in api_provider:
         provider_code = "openai"
