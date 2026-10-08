@@ -773,19 +773,37 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
         elif "Không có thông tin" in status_val:
             row_fill = tier_none_fill
 
+        has_li_link = False
+        if "Link LinkedIn" in headers:
+            li_idx = headers.index("Link LinkedIn")
+            if "linkedin.com/in" in str(row_data[li_idx]):
+                has_li_link = True
+
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            cell.font = Font(name="Arial", size=10)
+            header_name = headers[col_idx - 1]
+
+            if has_li_link:
+                cell.font = Font(name="Arial", size=10, bold=True)
+            else:
+                cell.font = Font(name="Arial", size=10)
+
             cell.border = thin_border
             cell.alignment = Alignment(vertical="center")
 
-            # Make link clickable
-            if headers[col_idx - 1] == "Link Facebook" and str(cell.value).startswith("http"):
+            # Make Facebook link clickable
+            if header_name == "Link Facebook" and str(cell.value).startswith("http"):
                 cell.hyperlink = str(cell.value)
-                cell.font = Font(name="Arial", size=10, color="0000FF", underline="single")
+                cell.font = Font(name="Arial", size=10, color="0000FF", underline="single", bold=has_li_link)
+
+            # Make LinkedIn link clickable & highlighted
+            if header_name == "Link LinkedIn" and "linkedin.com/in" in str(cell.value):
+                cell.hyperlink = str(cell.value)
+                cell.font = Font(name="Arial", size=10, color="0A66C2", underline="single", bold=True)
+                cell.fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid")
 
             # Apply background tint to key columns (Phân loại Lead, Đánh giá)
-            if headers[col_idx - 1] in ["Phân loại Lead", "Cấp bậc", "Đánh giá"] and row_fill:
+            if header_name in ["Phân loại Lead", "Cấp bậc", "Đánh giá"] and row_fill:
                 cell.fill = row_fill
 
     # Auto fit column widths

@@ -288,6 +288,23 @@ def clear_autosaved_data():
             except Exception:
                 pass
 
+def style_dataframe_with_linkedin(df: pd.DataFrame):
+    """
+    Applies bold styling, dark green text and mint green background
+    to all rows that have a valid LinkedIn profile URL.
+    """
+    if df is None or df.empty or "Link LinkedIn" not in df.columns:
+        return df
+
+    def _highlight_linkedin_row(row):
+        has_li = "linkedin.com/in" in str(row.get("Link LinkedIn", ""))
+        if has_li:
+            return ["background-color: #DCFCE7; color: #14532D; font-weight: 700;"] * len(row)
+        else:
+            return ["background-color: #FFFFFF; color: #4B5563; font-weight: 400;"] * len(row)
+
+    return df.style.apply(_highlight_linkedin_row, axis=1)
+
 saved_cfg = load_saved_config()
 
 # Initialize session state & restore autosaved progress
@@ -1008,8 +1025,9 @@ with tab_results:
         if "Tìm trên Google" in filtered_df.columns:
             tab3_col_config["Tìm trên Google"] = st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm")
 
+        styled_tab3_table = style_dataframe_with_linkedin(filtered_df)
         st.dataframe(
-            filtered_df,
+            styled_tab3_table,
             use_container_width=True,
             column_config=tab3_col_config
         )
@@ -1377,10 +1395,29 @@ with tab_linkedin:
             elif tbl_filter == "Chỉ người chưa có Link Profile":
                 li_view_df = li_view_df[~li_view_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False)]
 
+            # Sort so rows with LinkedIn profile link appear at the very top
+            if "Link LinkedIn" in li_view_df.columns:
+                li_view_df["_has_li"] = li_view_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).astype(int)
+                li_view_df = li_view_df.sort_values(by="_has_li", ascending=False).drop(columns=["_has_li"])
+
+            st.markdown("""
+            <div style="display:flex; align-items:center; gap:20px; margin: 8px 0 12px 0; font-size:0.86rem; background:#F8FAFC; border:1px solid #E2E8F0; padding:8px 14px; border-radius:8px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="display:inline-block; width:14px; height:14px; background:#DCFCE7; border:2px solid #22C55E; border-radius:3px;"></span>
+                    <span style="font-weight:700; color:#14532D;">Tô nền xanh & in đậm: Đã tìm thấy Profile LinkedIn</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="display:inline-block; width:14px; height:14px; background:#FFFFFF; border:1px solid #CBD5E1; border-radius:3px;"></span>
+                    <span style="color:#64748B;">Chữ thường: Chưa tìm thấy Profile (kèm link tìm kiếm Google 1-Click)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
             # Display table
             display_cols = [c for c in ["Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
+            styled_li_table = style_dataframe_with_linkedin(li_view_df[display_cols])
             st.dataframe(
-                li_view_df[display_cols],
+                styled_li_table,
                 use_container_width=True,
                 column_config={
                     "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile"),
