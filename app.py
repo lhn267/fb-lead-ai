@@ -1186,20 +1186,46 @@ with tab_linkedin:
         else:
             target_df = df_li.copy()
 
-        # Batch slice limit
-        s_count_col1, s_count_col2 = st.columns(2)
+        # Skip already matched checkbox
+        skip_already_matched = st.checkbox(
+            "Tự động bỏ qua những người đã tìm thấy Link LinkedIn trước đó (Tránh quét trùng lặp)",
+            value=True,
+            help="Nếu tích chọn, hệ thống sẽ lọc bỏ những ai đã có link LinkedIn trong máy để ưu tiên quét những người còn lại."
+        )
+
+        if skip_already_matched and "Link LinkedIn" in target_df.columns:
+            unmatched_mask = ~target_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False)
+            target_df = target_df[unmatched_mask]
+
+        # Batch slice limit & start index
+        s_count_col1, s_count_col2, s_count_col3 = st.columns([2, 2, 3])
+        total_in_target = len(target_df)
         with s_count_col1:
+            start_match_idx = st.number_input(
+                "Bắt đầu từ người số:",
+                min_value=1,
+                max_value=max(1, total_in_target),
+                value=1,
+                step=10,
+                help="Vị trí bắt đầu trong tệp đối tượng này."
+            )
+        with s_count_col2:
             match_limit = st.number_input(
                 "Số lượng muốn quét đợt này:",
                 min_value=1,
-                max_value=max(1, len(target_df)),
-                value=min(len(target_df), 100),
+                max_value=max(1, total_in_target),
+                value=min(total_in_target, 100) if total_in_target > 0 else 1,
                 step=10,
                 help="Bạn có thể quét từng đợt 50 - 100 người để kiểm tra kết quả ngay."
             )
-        with s_count_col2:
+        
+        calc_start = max(0, int(start_match_idx) - 1)
+        calc_end = min(total_in_target, calc_start + int(match_limit))
+        calc_count = max(0, calc_end - calc_start)
+
+        with s_count_col3:
             st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-            st.markdown(f"Đang chọn **{match_limit} người** trong tổng số **{len(target_df)} người** của tệp lọc.")
+            st.markdown(f"Phạm vi đợt này: Từ người số **{calc_start + 1}** đến **{calc_end}** (**{calc_count} người** / {total_in_target} người còn lại).")
 
         # Trigger button
         btn_m1, _ = st.columns([2, 3])
@@ -1209,8 +1235,10 @@ with tab_linkedin:
         if run_match_btn:
             if "Serper" in search_mode and not serper_key_input.strip():
                 st.warning("Bạn chưa nhập Serper API Key! Vui lòng dán Key ở trên (hoặc chọn phương thức 'Tạo link Google 1-Click' để chạy miễn phí không cần Key).")
+            elif calc_count == 0:
+                st.info("Tất cả những người trong tệp này đã được tìm thấy Link LinkedIn trước đó!")
             else:
-                subset_to_match = target_df.head(int(match_limit)).copy()
+                subset_to_match = target_df.iloc[calc_start:calc_end].copy()
                 p_bar_li = st.progress(0)
                 status_li = st.empty()
 
