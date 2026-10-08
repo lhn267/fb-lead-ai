@@ -445,11 +445,15 @@ def recheck_and_clean_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, in
         else:
             # False positive or unverified match -> Clear link!
             cleaned_df.at[idx, "Link LinkedIn"] = ""
-            cleaned_df.at[idx, "Tiêu đề LinkedIn"] = "Chưa tìm thấy profile trùng khớp chính xác (Đã tự động lọc kết quả sai)"
             cleaned_df.at[idx, "Độ khớp LinkedIn"] = "Chưa tìm thấy"
             if "Tìm trên Google" not in cleaned_df.columns or not cleaned_df.at[idx, "Tìm trên Google"]:
                 cleaned_df.at[idx, "Tìm trên Google"] = generate_google_search_url(name, comp, job, school)
             cleaned_count += 1
+
+    # Drop verbose columns
+    for c in ["Tiêu đề LinkedIn", "Tóm tắt LinkedIn", "Mô tả gốc", "Ghi chú AI"]:
+        if c in cleaned_df.columns:
+            cleaned_df.drop(columns=[c], inplace=True)
 
     return cleaned_df, retained_count, cleaned_count
 
@@ -465,10 +469,8 @@ def match_single_lead(row_dict: Dict[str, Any], serper_key: str) -> Dict[str, An
     if not serper_key:
         return {
             "Link LinkedIn": "",
-            "Tiêu đề LinkedIn": "Bấm link để xem trên Google",
-            "Tóm tắt LinkedIn": "",
             "Độ khớp LinkedIn": "Chưa tra cứu tự động",
-            "Link Google Search": search_url
+            "Tìm trên Google": search_url
         }
 
     query = build_google_dork_query(name, comp, job, school)
@@ -477,10 +479,8 @@ def match_single_lead(row_dict: Dict[str, Any], serper_key: str) -> Dict[str, An
 
     return {
         "Link LinkedIn": eval_res["linkedin_url"],
-        "Tiêu đề LinkedIn": eval_res["linkedin_title"],
-        "Tóm tắt LinkedIn": eval_res["linkedin_snippet"],
         "Độ khớp LinkedIn": eval_res["match_score"],
-        "Link Google Search": search_url
+        "Tìm trên Google": search_url
     }
 
 def match_leads_dataframe(
@@ -526,10 +526,8 @@ def match_leads_dataframe(
                 except Exception:
                     results_list[pos] = {
                         "Link LinkedIn": "",
-                        "Tiêu đề LinkedIn": "Lỗi kết nối tra cứu",
-                        "Tóm tắt LinkedIn": "",
                         "Độ khớp LinkedIn": "Chưa tìm thấy",
-                        "Link Google Search": generate_google_search_url(name, comp, job, school)
+                        "Tìm trên Google": generate_google_search_url(name, comp, job, school)
                     }
                 done_count += 1
                 if progress_callback:
@@ -537,9 +535,12 @@ def match_leads_dataframe(
 
     # Assign new columns to DataFrame
     out_df["Link LinkedIn"] = [r.get("Link LinkedIn", "") if r else "" for r in results_list]
-    out_df["Tiêu đề LinkedIn"] = [r.get("Tiêu đề LinkedIn", "") if r else "" for r in results_list]
-    out_df["Tóm tắt LinkedIn"] = [r.get("Tóm tắt LinkedIn", "") if r else "" for r in results_list]
     out_df["Độ khớp LinkedIn"] = [r.get("Độ khớp LinkedIn", "") if r else "" for r in results_list]
-    out_df["Tìm trên Google"] = [r.get("Link Google Search", "") if r else "" for r in results_list]
+    out_df["Tìm trên Google"] = [r.get("Tìm trên Google", "") if r else "" for r in results_list]
+
+    # Drop verbose columns
+    for c in ["Tiêu đề LinkedIn", "Tóm tắt LinkedIn", "Mô tả gốc", "Ghi chú AI"]:
+        if c in out_df.columns:
+            out_df.drop(columns=[c], inplace=True)
 
     return out_df

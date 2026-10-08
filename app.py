@@ -15,7 +15,9 @@ from fb_processor import (
     clean_file_data,
     process_friends_dataframe,
     export_styled_excel,
-    merge_and_deduplicate_dfs
+    merge_and_deduplicate_dfs,
+    clean_and_reorder_crm_dataframe,
+    map_to_info_completeness
 )
 from fb_deep_crawler import run_deep_profile_crawl, CHROME_PROFILE_DIR
 
@@ -251,7 +253,9 @@ def load_autosaved_data():
     if os.path.exists(AUTO_SAVE_CRM_FILE):
         try:
             crm_df = pd.read_csv(AUTO_SAVE_CRM_FILE, encoding="utf-8-sig")
-            if crm_df.empty:
+            if not crm_df.empty:
+                crm_df = clean_and_reorder_crm_dataframe(crm_df)
+            else:
                 crm_df = None
         except Exception:
             crm_df = None
@@ -269,7 +273,8 @@ def load_autosaved_data():
 def save_crm_autosave(df: pd.DataFrame):
     if df is not None and not df.empty:
         try:
-            df.to_csv(AUTO_SAVE_CRM_FILE, index=False, encoding="utf-8-sig")
+            cleaned = clean_and_reorder_crm_dataframe(df)
+            cleaned.to_csv(AUTO_SAVE_CRM_FILE, index=False, encoding="utf-8-sig")
         except Exception:
             pass
 
@@ -910,12 +915,13 @@ with tab_results:
         </div>
         """, unsafe_allow_html=True)
     else:
-        res_df = st.session_state.processed_df.copy()
+        res_df = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
+        tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in res_df.columns else "Phân loại Lead"
 
         # Summary KPIs
         total_leads = len(res_df)
-        high_potential = len(res_df[res_df["Phân loại Lead"] == "Tiềm năng cao"])
-        mid_potential = len(res_df[res_df["Phân loại Lead"] == "Tiềm năng trung bình"])
+        high_potential = len(res_df[res_df[tier_col] == "Cao"])
+        mid_potential = len(res_df[res_df[tier_col] == "Trung bình"])
         trash_count = len(res_df[res_df["Đánh giá"].str.contains("Rác", na=False)])
         valid_count = len(res_df[res_df["Đánh giá"] == "Hợp lệ"])
 
@@ -935,7 +941,7 @@ with tab_results:
             <div class="metric-card">
                 <div class="metric-header">
                     <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon("star", 14, "#059669")}</span>
-                    <span>TIỀM NĂNG CAO</span>
+                    <span>ĐẦY ĐỦ (CAO)</span>
                 </div>
                 <div class="metric-val val-green">{high_potential}</div>
             </div>
@@ -945,7 +951,7 @@ with tab_results:
             <div class="metric-card">
                 <div class="metric-header">
                     <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("briefcase", 14, "#2563EB")}</span>
-                    <span>TIỀM NĂNG TRUNG BÌNH</span>
+                    <span>TRUNG BÌNH</span>
                 </div>
                 <div class="metric-val val-blue">{mid_potential}</div>
             </div>
@@ -984,8 +990,8 @@ with tab_results:
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
 
         with f_col1:
-            tier_options = ["Tất cả"] + list(res_df["Phân loại Lead"].unique())
-            sel_tier = st.selectbox("Phân loại Lead", options=tier_options, index=0)
+            tier_options = ["Tất cả"] + list(res_df[tier_col].unique())
+            sel_tier = st.selectbox("Độ đầy đủ thông tin", options=tier_options, index=0)
 
         with f_col2:
             status_options = ["Tất cả"] + list(res_df["Đánh giá"].unique())
@@ -1001,7 +1007,7 @@ with tab_results:
         # Apply Filters
         filtered_df = res_df.copy()
         if sel_tier != "Tất cả":
-            filtered_df = filtered_df[filtered_df["Phân loại Lead"] == sel_tier]
+            filtered_df = filtered_df[filtered_df[tier_col] == sel_tier]
         if sel_status != "Tất cả":
             filtered_df = filtered_df[filtered_df["Đánh giá"] == sel_status]
         if sel_level != "Tất cả":
@@ -1020,13 +1026,14 @@ with tab_results:
         st.write(f"Hiển thị **{len(filtered_df)}** / {len(res_df)} kết quả phù hợp:")
 
         # Interactive Data Table
+        filtered_df = clean_and_reorder_crm_dataframe(filtered_df)
         tab3_col_config = {
-            "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở Profile FB")
+            "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở FB", width="small")
         }
         if "Link LinkedIn" in filtered_df.columns:
-            tab3_col_config["Link LinkedIn"] = st.column_config.LinkColumn("Link LinkedIn", display_text="Mở LinkedIn")
+            tab3_col_config["Link LinkedIn"] = st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small")
         if "Tìm trên Google" in filtered_df.columns:
-            tab3_col_config["Tìm trên Google"] = st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm")
+            tab3_col_config["Tìm trên Google"] = st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm", width="small")
 
         styled_tab3_table = style_dataframe_with_linkedin(filtered_df)
         st.dataframe(
@@ -1089,13 +1096,14 @@ with tab_linkedin:
         </div>
         """, unsafe_allow_html=True)
     else:
-        df_li = st.session_state.processed_df.copy()
+        df_li = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
         total_crm_leads = len(df_li)
+        tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in df_li.columns else "Phân loại Lead"
 
         # Count stats
         has_li_count = df_li["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).sum() if "Link LinkedIn" in df_li.columns else 0
-        high_tier_count = len(df_li[df_li["Phân loại Lead"] == "Tiềm năng cao"])
-        mid_tier_count = len(df_li[df_li["Phân loại Lead"] == "Tiềm năng trung bình"])
+        high_tier_count = len(df_li[df_li[tier_col] == "Cao"])
+        mid_tier_count = len(df_li[df_li[tier_col] == "Trung bình"])
         has_company_count = len(df_li[df_li["Tên công ty / Đơn vị"].ne("Chưa cập nhật") & df_li["Tên công ty / Đơn vị"].ne("Ảo") & ~df_li["Tên công ty / Đơn vị"].isna()])
 
         # KPI Summary cards
@@ -1115,9 +1123,9 @@ with tab_linkedin:
             <div class="metric-card">
                 <div class="metric-header">
                     <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon("star", 14, "#059669")}</span>
-                    <span>MỤC TIÊU TIỀM NĂNG</span>
+                    <span>THÔNG TIN ĐẦY ĐỦ (CAO)</span>
                 </div>
-                <div class="metric-val val-green">{high_tier_count + mid_tier_count}</div>
+                <div class="metric-val val-green">{high_tier_count}</div>
             </div>
             ''', unsafe_allow_html=True)
         with c_kpi3:
@@ -1156,8 +1164,8 @@ with tab_linkedin:
             target_filter = st.selectbox(
                 "Chọn tệp đối tượng cần tìm LinkedIn:",
                 options=[
-                    f"1. Nhóm Tiềm năng cao ({high_tier_count} người) [Khuyên dùng]",
-                    f"2. Cả Tiềm năng cao & Trung bình ({high_tier_count + mid_tier_count} người)",
+                    f"1. Nhóm thông tin Đầy đủ (Cao) ({high_tier_count} người) [Khuyên dùng để match]",
+                    f"2. Cả nhóm Cao & Trung bình ({high_tier_count + mid_tier_count} người)",
                     f"3. Tất cả những người có tên công ty ({has_company_count} người)",
                     f"4. Toàn bộ danh bạ ({total_crm_leads} người)"
                 ],
@@ -1176,10 +1184,10 @@ with tab_linkedin:
             )
 
         # Base target dataframe for the selected filter
-        if "1. Nhóm Tiềm năng cao" in target_filter:
-            base_target_df = df_li[df_li["Phân loại Lead"] == "Tiềm năng cao"].copy()
-        elif "2. Cả Tiềm năng cao" in target_filter:
-            base_target_df = df_li[df_li["Phân loại Lead"].isin(["Tiềm năng cao", "Tiềm năng trung bình"])].copy()
+        if "1. Nhóm thông tin Đầy đủ" in target_filter:
+            base_target_df = df_li[df_li[tier_col] == "Cao"].copy()
+        elif "2. Cả nhóm Cao" in target_filter:
+            base_target_df = df_li[df_li[tier_col].isin(["Cao", "Trung bình"])].copy()
         elif "3. Tất cả những người có tên công ty" in target_filter:
             base_target_df = df_li[df_li["Tên công ty / Đơn vị"].ne("Chưa cập nhật") & df_li["Tên công ty / Đơn vị"].ne("Ảo") & ~df_li["Tên công ty / Đơn vị"].isna()].copy()
         else:
@@ -1342,11 +1350,12 @@ with tab_linkedin:
                 )
 
                 # Merge matched columns back to main processed_df
-                for col in ["Link LinkedIn", "Tiêu đề LinkedIn", "Tóm tắt LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"]:
+                for col in ["Link LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"]:
                     if col not in df_li.columns:
                         df_li[col] = ""
                     df_li.loc[matched_subset.index, col] = matched_subset[col]
 
+                df_li = clean_and_reorder_crm_dataframe(df_li)
                 st.session_state.processed_df = df_li
                 save_crm_autosave(df_li)
                 p_bar_li.progress(100)
@@ -1449,6 +1458,7 @@ with tab_linkedin:
                 li_view_df = li_view_df.sort_values(by="_score", ascending=False).drop(columns=["_score"])
 
             # Reset index and add clean STT column
+            li_view_df = clean_and_reorder_crm_dataframe(li_view_df)
             li_view_df = li_view_df.reset_index(drop=True)
             li_view_df.insert(0, "STT", range(1, len(li_view_df) + 1))
 
@@ -1466,7 +1476,24 @@ with tab_linkedin:
             """, unsafe_allow_html=True)
 
             # Display table with proper column widths and hidden index
-            display_cols = [c for c in ["STT", "Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Trường học / Học vấn", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
+            # Exactly requested order: profile info -> Độ đầy đủ thông tin -> Độ khớp LinkedIn -> Link Facebook -> Link LinkedIn -> Tìm trên Google
+            display_cols = [
+                c for c in [
+                    "STT",
+                    "Họ và tên",
+                    "Chức vụ",
+                    "Tên công ty / Đơn vị",
+                    "Tên công ty chuẩn hóa",
+                    "Trường học / Học vấn",
+                    "Cấp bậc",
+                    "Lĩnh vực / Ngành nghề",
+                    "Độ đầy đủ thông tin",
+                    "Độ khớp LinkedIn",
+                    "Link Facebook",
+                    "Link LinkedIn",
+                    "Tìm trên Google"
+                ] if c in li_view_df.columns
+            ]
             styled_li_table = style_dataframe_with_linkedin(li_view_df[display_cols])
             st.dataframe(
                 styled_li_table,
@@ -1476,12 +1503,15 @@ with tab_linkedin:
                     "STT": st.column_config.NumberColumn("STT", width="small"),
                     "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
                     "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
+                    "Tên công ty chuẩn hóa": st.column_config.TextColumn("Công ty chuẩn hóa", width="medium"),
                     "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
                     "Trường học / Học vấn": st.column_config.TextColumn("Học vấn / Trường", width="medium"),
                     "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
-                    "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small"),
-                    "Tiêu đề LinkedIn": st.column_config.TextColumn("Tiêu đề LinkedIn", width="large"),
+                    "Lĩnh vực / Ngành nghề": st.column_config.TextColumn("Lĩnh vực", width="small"),
+                    "Độ đầy đủ thông tin": st.column_config.TextColumn("Độ đầy đủ TT", width="small"),
                     "Độ khớp LinkedIn": st.column_config.TextColumn("Độ khớp", width="small"),
+                    "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở FB", width="small"),
+                    "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small"),
                     "Tìm trên Google": st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm", width="small")
                 }
             )
@@ -1509,7 +1539,7 @@ with tab_analytics:
         </div>
         """, unsafe_allow_html=True)
     else:
-        df_an = st.session_state.processed_df
+        df_an = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
 
         an_col1, an_col2 = st.columns(2)
         with an_col1:
@@ -1527,12 +1557,13 @@ with tab_analytics:
             st.markdown(f'''
             <div class="section-title">
                 <span class="icon-pill icon-pill-amber">{get_svg_icon("target", 18, "#D97706")}</span>
-                <span>Phân Bổ Tầng Lead</span>
+                <span>Phân Bổ Độ Đầy Đủ Thông Tin</span>
             </div>
             ''', unsafe_allow_html=True)
-            tier_counts = df_an["Phân loại Lead"].value_counts().reset_index()
-            tier_counts.columns = ["Phân loại Lead", "Số lượng"]
-            st.bar_chart(data=tier_counts, x="Phân loại Lead", y="Số lượng")
+            tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in df_an.columns else "Phân loại Lead"
+            tier_counts = df_an[tier_col].value_counts().reset_index()
+            tier_counts.columns = [tier_col, "Số lượng"]
+            st.bar_chart(data=tier_counts, x=tier_col, y="Số lượng")
 
         st.markdown(f'''
         <div class="section-title">

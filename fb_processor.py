@@ -628,6 +628,79 @@ def process_friends_dataframe(
             "orig_row": row.to_dict()
         })
 
+def map_to_info_completeness(tier_or_status: str, company: str = "", job: str = "") -> str:
+    """
+    Maps lead tier or data quality to 'Độ đầy đủ thông tin' (Cao, Trung bình, Thấp, Thiếu thông tin)
+    for downstream data enrichment and pain point matching.
+    """
+    t = str(tier_or_status).strip()
+    if t in ["Cao", "Trung bình", "Thấp", "Thiếu thông tin"]:
+        return t
+    if "Tiềm năng cao" in t:
+        return "Cao"
+    if "Tiềm năng trung bình" in t:
+        return "Trung bình"
+    if "Tiềm năng thấp" in t:
+        return "Thấp"
+    if "Bỏ qua" in t or "Rác" in t or "Không có" in t:
+        return "Thiếu thông tin"
+    
+    # Heuristic based on presence of company & job
+    has_comp = bool(company and company not in ["Chưa cập nhật", "Ảo", "nan"])
+    has_job = bool(job and job not in ["Chưa cập nhật", "Worked", "University", "Ảo / Đùa cợt", "nan"])
+    if has_comp and has_job:
+        return "Cao"
+    elif has_comp or has_job:
+        return "Trung bình"
+    else:
+        return "Thấp"
+
+def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardizes CRM dataframe according to user specification:
+    1. Renames 'Phân loại Lead' -> 'Độ đầy đủ thông tin' (mapped to Cao, Trung bình, Thấp, Thiếu thông tin).
+    2. Drops raw verbose columns: 'Mô tả gốc', 'Ghi chú AI', 'Tiêu đề LinkedIn', 'Tóm tắt LinkedIn'.
+    3. Reorders columns so link columns are consecutive at the end: Link Facebook -> Link LinkedIn -> Tìm trên Google.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # 1. Rename Phân loại Lead -> Độ đầy đủ thông tin
+    if "Phân loại Lead" in out.columns and "Độ đầy đủ thông tin" not in out.columns:
+        out["Độ đầy đủ thông tin"] = out["Phân loại Lead"].map(lambda x: map_to_info_completeness(str(x)))
+        out.drop(columns=["Phân loại Lead"], inplace=True)
+    elif "Độ đầy đủ thông tin" in out.columns:
+        out["Độ đầy đủ thông tin"] = out["Độ đầy đủ thông tin"].map(lambda x: map_to_info_completeness(str(x)))
+
+    # 2. Drop unwanted verbose columns
+    cols_to_drop = ["Mô tả gốc", "Ghi chú AI", "Tiêu đề LinkedIn", "Tóm tắt LinkedIn"]
+    out.drop(columns=[c for c in cols_to_drop if c in out.columns], inplace=True)
+
+    # 3. Target column ordering
+    # Core Data -> Độ đầy đủ thông tin -> Độ khớp LinkedIn -> Link Facebook -> Link LinkedIn -> Tìm trên Google
+    desired_order = [
+        "STT",
+        "Họ và tên",
+        "Chức vụ",
+        "Tên công ty / Đơn vị",
+        "Tên công ty chuẩn hóa",
+        "Trường học / Học vấn",
+        "Cấp bậc",
+        "Lĩnh vực / Ngành nghề",
+        "Đánh giá",
+        "Độ đầy đủ thông tin",
+        "Độ khớp LinkedIn",
+        "Link Facebook",
+        "Link LinkedIn",
+        "Tìm trên Google"
+    ]
+
+    existing_desired = [c for c in desired_order if c in out.columns]
+    remaining_cols = [c for c in out.columns if c not in desired_order]
+    return out[existing_desired + remaining_cols]
+
     # Process batch by batch
     for start_idx in range(0, total_rows, batch_size):
         batch = prepared_items[start_idx : start_idx + batch_size]
@@ -645,10 +718,8 @@ def process_friends_dataframe(
                     "Cấp bậc": cls_res["level"],
                     "Lĩnh vực / Ngành nghề": cls_res["industry"],
                     "Đánh giá": cls_res["status"],
-                    "Phân loại Lead": cls_res["lead_tier"],
-                    "Link Facebook": item["link"],
-                    "Mô tả gốc": item["text"],
-                    "Ghi chú AI": cls_res["reason"]
+                    "Độ đầy đủ thông tin": map_to_info_completeness(cls_res["lead_tier"], cls_res["company"], cls_res["job_title"]),
+                    "Link Facebook": item["link"]
                 })
         else:
             # Need to call AI API
@@ -699,10 +770,8 @@ def process_friends_dataframe(
                     "Cấp bậc": res_data.get("level", "Không xác định"),
                     "Lĩnh vực / Ngành nghề": res_data.get("industry", "Không rõ"),
                     "Đánh giá": res_data.get("status", "Hợp lệ"),
-                    "Phân loại Lead": res_data.get("lead_tier", "Tiềm năng trung bình"),
-                    "Link Facebook": item["link"],
-                    "Mô tả gốc": item["text"],
-                    "Ghi chú AI": res_data.get("reason", "")
+                    "Độ đầy đủ thông tin": map_to_info_completeness(res_data.get("lead_tier", "Tiềm năng trung bình"), res_data.get("company", ""), res_data.get("job_title", "")),
+                    "Link Facebook": item["link"]
                 })
 
             # Small polite pause to respect rate limits only when AI was actually called
@@ -714,13 +783,16 @@ def process_friends_dataframe(
             current_done = min(start_idx + batch_size, total_rows)
             progress_callback(current_done, total_rows)
 
-    return pd.DataFrame(results)
+    return clean_and_reorder_crm_dataframe(pd.DataFrame(results))
 
 def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
     """
     Exports processed dataframe into a professionally styled Excel file.
     Can write to a file path, a file-like buffer (io.BytesIO), or return raw bytes if output_path is None.
+    Automatically standardizes column sequence: Profile info -> Độ đầy đủ thông tin -> Link Facebook -> Link LinkedIn -> Tìm trên Google.
     """
+    clean_df = clean_and_reorder_crm_dataframe(df)
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Data Khách Hàng Tiềm Năng"
@@ -743,7 +815,7 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
     )
 
     # Headers
-    headers = list(df.columns)
+    headers = list(clean_df.columns)
     ws.append(headers)
 
     for col_idx, header in enumerate(headers, 1):
@@ -755,22 +827,23 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
     ws.row_dimensions[1].height = 28
 
     # Rows
-    for row_idx, row_data in enumerate(df.values, 2):
+    for row_idx, row_data in enumerate(clean_df.values, 2):
         ws.append(list(row_data))
         ws.row_dimensions[row_idx].height = 22
         
-        tier_val = str(row_data[headers.index("Phân loại Lead")]) if "Phân loại Lead" in headers else ""
+        tier_col_name = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in headers else ("Phân loại Lead" if "Phân loại Lead" in headers else "")
+        tier_val = str(row_data[headers.index(tier_col_name)]) if tier_col_name else ""
         status_val = str(row_data[headers.index("Đánh giá")]) if "Đánh giá" in headers else ""
 
-        # Row color highlight based on lead tier
+        # Row color highlight based on info completeness tier
         row_fill = None
-        if "Tiềm năng cao" in tier_val or "C-Level" in str(row_data):
+        if "Cao" in tier_val or "C-Level" in str(row_data):
             row_fill = tier_high_fill
-        elif "Tiềm năng trung bình" in tier_val:
+        elif "Trung bình" in tier_val:
             row_fill = tier_mid_fill
-        elif "Rác" in status_val or "Bỏ qua" in tier_val:
+        elif "Rác" in status_val or "Thiếu thông tin" in tier_val or "Bỏ qua" in tier_val:
             row_fill = tier_trash_fill
-        elif "Không có thông tin" in status_val:
+        elif "Thấp" in tier_val or "Không có thông tin" in status_val:
             row_fill = tier_none_fill
 
         has_li_link = False
@@ -802,8 +875,13 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
                 cell.font = Font(name="Arial", size=10, color="0A66C2", underline="single", bold=True)
                 cell.fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid")
 
-            # Apply background tint to key columns (Phân loại Lead, Đánh giá)
-            if header_name in ["Phân loại Lead", "Cấp bậc", "Đánh giá"] and row_fill:
+            # Make Google search link clickable
+            if header_name == "Tìm trên Google" and str(cell.value).startswith("http"):
+                cell.hyperlink = str(cell.value)
+                cell.font = Font(name="Arial", size=10, color="4B5563", underline="single")
+
+            # Apply background tint to key columns (Độ đầy đủ thông tin, Cấp bậc, Đánh giá)
+            if header_name in ["Độ đầy đủ thông tin", "Phân loại Lead", "Cấp bậc", "Đánh giá"] and row_fill:
                 cell.fill = row_fill
 
     # Auto fit column widths
