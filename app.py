@@ -394,6 +394,9 @@ with st.sidebar:
         type="password",
         help="Dùng để tự động tìm kiếm Profile LinkedIn trên Google. Đăng ký nhận 2.500 lượt tìm kiếm miễn phí tại serper.dev"
     )
+    if serper_api_key and serper_api_key.strip() != saved_cfg.get("serper_key", ""):
+        saved_cfg["serper_key"] = serper_api_key.strip()
+        save_user_config(saved_cfg)
     st.markdown(
         f"<a href='https://serper.dev/signup' target='_blank' style='text-decoration:none; color:#2563EB; font-weight:600; font-size:0.85rem;'>"
         f"{get_svg_icon('external', 13, '#2563EB')} Lấy Serper API Key miễn phí (2.500 lượt)</a>",
@@ -1172,28 +1175,6 @@ with tab_linkedin:
                 horizontal=True
             )
 
-        # Serper API Key input if using mode 1
-        serper_key_input = saved_cfg.get("serper_key", "")
-        if "Serper" in search_mode:
-            s_col1, s_col2 = st.columns([3, 2])
-            with s_col1:
-                serper_key_input = st.text_input(
-                    "Serper API Key (Tìm kiếm Google):",
-                    value=serper_key_input,
-                    type="password",
-                    help="Nhận 2.500 lượt tìm kiếm Google miễn phí trong 30 giây tại serper.dev"
-                )
-            with s_col2:
-                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<a href='https://serper.dev/signup' target='_blank' style='display:inline-flex; align-items:center; gap:6px; background:#EFF6FF; border:1px solid #BFDBFE; padding:7px 14px; border-radius:8px; color:#2563EB; font-weight:600; text-decoration:none; font-size:0.88rem;'>"
-                    f"{get_svg_icon('external', 14, '#2563EB')} Đăng ký lấy Serper API Key (Free 2.500 lượt)</a>",
-                    unsafe_allow_html=True
-                )
-            if serper_key_input and serper_key_input != saved_cfg.get("serper_key", ""):
-                saved_cfg["serper_key"] = serper_key_input.strip()
-                save_user_config(saved_cfg)
-
         # Base target dataframe for the selected filter
         if "1. Nhóm Tiềm năng cao" in target_filter:
             base_target_df = df_li[df_li["Phân loại Lead"] == "Tiềm năng cao"].copy()
@@ -1216,8 +1197,8 @@ with tab_linkedin:
             match_mode = st.radio(
                 "Cách chọn danh sách quét:",
                 options=[
-                    "🎯 Quét theo số thứ tự (Ví dụ: Từ người 101 đến 476)",
-                    "⚡ Tự động quét người chưa có Link (Khuyên dùng - tự động bốc)"
+                    "Quét theo số thứ tự (Ví dụ: Từ người 101 đến 476)",
+                    "Tự động quét người chưa có Link (Khuyên dùng)"
                 ],
                 index=0,
                 horizontal=True
@@ -1229,30 +1210,32 @@ with tab_linkedin:
                 help="Nếu tích chọn, hệ thống sẽ bỏ qua những ai đã có link LinkedIn trong máy để tiết kiệm lượt gọi API."
             )
 
-        if "🎯 Quét theo số thứ tự" in match_mode:
-            s_count_col1, s_count_col2, s_count_col3 = st.columns([2, 2, 3])
-            with s_count_col1:
-                start_match_idx = st.number_input(
-                    "Bắt đầu từ người số:",
-                    min_value=1,
-                    max_value=max(1, total_in_group),
-                    value=1,
-                    step=10,
-                    help="Vị trí bắt đầu trong tệp đối tượng này (từ 1 đến tổng số người)."
-                )
+        col_inputs, col_card = st.columns([1, 1])
 
-            calc_start = max(0, int(start_match_idx) - 1)
-            remaining_from_start = max(1, total_in_group - calc_start)
+        if "Quét theo số thứ tự" in match_mode:
+            with col_inputs:
+                c_s1, c_s2 = st.columns(2)
+                with c_s1:
+                    start_match_idx = st.number_input(
+                        "Bắt đầu từ người số:",
+                        min_value=1,
+                        max_value=max(1, total_in_group),
+                        value=1,
+                        step=10,
+                        help="Vị trí bắt đầu trong tệp đối tượng này (từ 1 đến tổng số người)."
+                    )
+                calc_start = max(0, int(start_match_idx) - 1)
+                remaining_from_start = max(1, total_in_group - calc_start)
 
-            with s_count_col2:
-                match_limit = st.number_input(
-                    "Số lượng muốn quét đợt này:",
-                    min_value=1,
-                    max_value=max(1, total_in_group),
-                    value=min(100, remaining_from_start) if remaining_from_start > 0 else 1,
-                    step=10,
-                    help="Số lượng người muốn tra cứu trong đợt này (Enter để cập nhật)."
-                )
+                with c_s2:
+                    match_limit = st.number_input(
+                        "Số lượng muốn quét đợt này:",
+                        min_value=1,
+                        max_value=max(1, total_in_group),
+                        value=min(100, remaining_from_start) if remaining_from_start > 0 else 1,
+                        step=10,
+                        help="Số lượng người muốn tra cứu trong đợt này (Enter để cập nhật)."
+                    )
 
             calc_end = min(total_in_group, calc_start + int(match_limit))
             calc_count = max(0, calc_end - calc_start)
@@ -1272,19 +1255,20 @@ with tab_linkedin:
             else:
                 subset_to_match = subset_selected.copy()
 
-            with s_count_col3:
-                st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+            with col_card:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
                 if skip_already_matched and slice_already_count > 0:
-                    detail_note = f"<div style='color:#059669; font-size:0.82rem; margin-top:3px;'>⚡ <b>{len(subset_to_match)} người</b> chưa có link sẽ được tra cứu ({slice_already_count} người đã có link sẽ tự động bỏ qua để tiết kiệm API)</div>"
+                    detail_note = f"<div style='color:#059669; font-size:0.82rem; margin-top:4px; display:flex; align-items:center; gap:6px;'>{get_svg_icon('check', 13, '#059669')} <span><b>{len(subset_to_match)} người</b> chưa có link sẽ được tra cứu ({slice_already_count} người đã có link sẽ tự động bỏ qua để tiết kiệm API)</span></div>"
                 else:
-                    detail_note = f"<div style='color:#059669; font-size:0.82rem; margin-top:3px;'>⚡ <b>{len(subset_to_match)} người</b> sẽ được tra cứu trong đợt này</div>"
+                    detail_note = f"<div style='color:#059669; font-size:0.82rem; margin-top:4px; display:flex; align-items:center; gap:6px;'>{get_svg_icon('check', 13, '#059669')} <span><b>{len(subset_to_match)} người</b> sẽ được tra cứu trong đợt này</span></div>"
 
                 st.markdown(f"""
-                <div style="background:#F0FDF4; border:1px solid #BBF7D0; padding:10px 14px; border-radius:8px;">
-                    <div style="font-weight:600; color:#166534; font-size:0.92rem;">
-                        Phạm vi quét: Từ người số <b>{calc_start + 1}</b> đến <b>{calc_end}</b>
+                <div style="background:#F0FDF4; border:1px solid #BBF7D0; padding:12px 16px; border-radius:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('target', 14, '#059669')}</span>
+                        <span style="font-weight:700; color:#166534; font-size:0.92rem;">Phạm vi quét: Từ người số {calc_start + 1} đến {calc_end}</span>
                     </div>
-                    <div style="color:#15803D; font-size:0.84rem; margin-top:2px;">
+                    <div style="color:#15803D; font-size:0.84rem; margin-top:4px;">
                         Tổng chọn: <b>{calc_count} người</b> (trên tổng số {total_in_group} người trong nhóm)
                     </div>
                     {detail_note}
@@ -1296,12 +1280,11 @@ with tab_linkedin:
             unmatched_df = base_target_df[~already_has_li_mask].copy()
             unmatched_total = len(unmatched_df)
 
-            auto_col1, auto_col2 = st.columns([2, 3])
-            with auto_col1:
+            with col_inputs:
                 auto_limit = st.number_input(
                     "Số lượng muốn quét đợt này:",
                     min_value=1,
-                    max_value=max(1, unmatched_total),
+                    max_value=max(1, unmatched_total) if unmatched_total > 0 else 1,
                     value=min(100, unmatched_total) if unmatched_total > 0 else 1,
                     step=10,
                     help="Số người chưa có link LinkedIn sẽ được lấy tự động từ trên xuống."
@@ -1310,18 +1293,19 @@ with tab_linkedin:
             subset_to_match = unmatched_df.head(int(auto_limit)).copy()
             calc_count = len(subset_to_match)
 
-            with auto_col2:
-                st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+            with col_card:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
                 st.markdown(f"""
-                <div style="background:#EFF6FF; border:1px solid #BFDBFE; padding:10px 14px; border-radius:8px;">
-                    <div style="font-weight:600; color:#1D4ED8; font-size:0.92rem;">
-                        Tự động lấy: <b>{calc_count} người tiếp theo</b> chưa có link
+                <div style="background:#EFF6FF; border:1px solid #BFDBFE; padding:12px 16px; border-radius:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon('bolt', 14, '#2563EB')}</span>
+                        <span style="font-weight:700; color:#1D4ED8; font-size:0.92rem;">Tự động lấy: {calc_count} người tiếp theo chưa có link</span>
                     </div>
-                    <div style="color:#2563EB; font-size:0.84rem; margin-top:2px;">
+                    <div style="color:#2563EB; font-size:0.84rem; margin-top:4px;">
                         Hiện còn <b>{unmatched_total} / {total_in_group} người</b> chưa có LinkedIn trong nhóm này
                     </div>
-                    <div style="color:#4B5563; font-size:0.80rem; margin-top:2px;">
-                        💡 Hệ thống tự bốc từ trên xuống, quét xong tự động trừ dần
+                    <div style="color:#64748B; font-size:0.80rem; margin-top:4px; display:flex; align-items:center; gap:6px;">
+                        {get_svg_icon('info', 13, '#64748B')} <span>Hệ thống tự bốc từ trên xuống, quét xong tự động trừ dần</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1331,9 +1315,11 @@ with tab_linkedin:
         with btn_m1:
             run_match_btn = st.button("BẮT ĐẦU TÌM KIẾM & GHÉP NỐI LINKEDIN", type="primary", use_container_width=True)
 
+        eff_serper = saved_cfg.get("serper_key", "").strip()
+
         if run_match_btn:
-            if "Serper" in search_mode and not serper_key_input.strip():
-                st.warning("Bạn chưa nhập Serper API Key! Vui lòng dán Key ở trên (hoặc chọn phương thức 'Tạo link Google 1-Click' để chạy miễn phí không cần Key).")
+            if "Serper" in search_mode and not eff_serper:
+                st.warning("Bạn chưa cấu hình Serper API Key ở thanh Cấu hình (Sidebar bên trái)! Vui lòng dán Key tại Sidebar để tiếp tục hoặc chọn phương thức 'Tạo link Google 1-Click' để chạy miễn phí.")
             elif len(subset_to_match) == 0:
                 st.info("Tất cả những người trong phạm vi đã chọn đều đã có Link LinkedIn trước đó!")
             else:
