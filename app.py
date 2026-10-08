@@ -1365,26 +1365,67 @@ with tab_linkedin:
             </div>
             ''', unsafe_allow_html=True)
 
-            li_view_df = df_li[df_li["Link LinkedIn"].astype(str).ne("") & df_li["Link LinkedIn"].astype(str).ne("nan") | df_li["Tìm trên Google"].astype(str).ne("") & df_li["Tìm trên Google"].astype(str).ne("nan")].copy()
+            # Determine matched and search link masks
+            has_li_mask = df_li["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False) if "Link LinkedIn" in df_li.columns else pd.Series(False, index=df_li.index)
+            has_gg_mask = df_li["Tìm trên Google"].astype(str).str.contains("http", na=False) if "Tìm trên Google" in df_li.columns else pd.Series(False, index=df_li.index)
+            processed_mask = has_li_mask | has_gg_mask
+
+            total_proc_count = int(processed_mask.sum())
+            matched_proc_count = int(has_li_mask.sum())
+            unmatched_proc_count = total_proc_count - matched_proc_count
+
+            tbl_col1, tbl_col2 = st.columns([3, 2])
+            with tbl_col1:
+                tbl_filter = st.radio(
+                    "Lọc kết quả hiển thị:",
+                    options=[
+                        f"Tất cả đã tra cứu ({total_proc_count})",
+                        f"Chỉ người tìm thấy Link LinkedIn ({matched_proc_count})",
+                        f"Chỉ người chưa có Link Profile ({unmatched_proc_count})"
+                    ],
+                    index=0,
+                    horizontal=True
+                )
+            with tbl_col2:
+                sort_order = st.selectbox(
+                    "Thứ tự hiển thị:",
+                    options=[
+                        "Thứ tự gốc theo danh bạ (1, 2, 3...)",
+                        "Đưa người có LinkedIn lên đầu",
+                        "Độ khớp cao xuống thấp"
+                    ],
+                    index=0
+                )
+
+            # Apply filter
+            if "Chỉ người tìm thấy Link LinkedIn" in tbl_filter:
+                li_view_df = df_li[has_li_mask].copy()
+            elif "Chỉ người chưa có Link Profile" in tbl_filter:
+                li_view_df = df_li[~has_li_mask & has_gg_mask].copy()
+            else:
+                li_view_df = df_li[processed_mask].copy()
+
             if li_view_df.empty:
                 li_view_df = df_li.head(20).copy()
 
-            tbl_filter_col1, tbl_filter_col2 = st.columns([3, 2])
-            with tbl_filter_col1:
-                tbl_filter = st.radio(
-                    "Lọc kết quả hiển thị:",
-                    options=["Tất cả đã tra cứu", "Chỉ người tìm thấy Link LinkedIn", "Chỉ người chưa có Link Profile"],
-                    horizontal=True
-                )
-            if tbl_filter == "Chỉ người tìm thấy Link LinkedIn":
-                li_view_df = li_view_df[li_view_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False)]
-            elif tbl_filter == "Chỉ người chưa có Link Profile":
-                li_view_df = li_view_df[~li_view_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False)]
-
-            # Sort so rows with LinkedIn profile link appear at the very top
-            if "Link LinkedIn" in li_view_df.columns:
+            # Apply sort order (Default: preserves natural CRM sequence!)
+            if sort_order == "Đưa người có LinkedIn lên đầu" and "Link LinkedIn" in li_view_df.columns:
                 li_view_df["_has_li"] = li_view_df["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).astype(int)
                 li_view_df = li_view_df.sort_values(by="_has_li", ascending=False).drop(columns=["_has_li"])
+            elif sort_order == "Độ khớp cao xuống thấp" and "Độ khớp LinkedIn" in li_view_df.columns:
+                score_map = {
+                    "Khớp cao (90-100%)": 3,
+                    "Khớp vừa (60-80%)": 2,
+                    "Cần đối soát (<50%)": 1,
+                    "Cần đối soát": 1,
+                    "Chưa tìm thấy": 0
+                }
+                li_view_df["_score"] = li_view_df["Độ khớp LinkedIn"].map(lambda x: score_map.get(str(x), 0))
+                li_view_df = li_view_df.sort_values(by="_score", ascending=False).drop(columns=["_score"])
+
+            # Reset index and add clean STT column
+            li_view_df = li_view_df.reset_index(drop=True)
+            li_view_df.insert(0, "STT", range(1, len(li_view_df) + 1))
 
             st.markdown("""
             <div style="display:flex; align-items:center; gap:20px; margin: 8px 0 12px 0; font-size:0.86rem; background:#F8FAFC; border:1px solid #E2E8F0; padding:8px 14px; border-radius:8px;">
@@ -1399,15 +1440,23 @@ with tab_linkedin:
             </div>
             """, unsafe_allow_html=True)
 
-            # Display table
-            display_cols = [c for c in ["Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
+            # Display table with proper column widths and hidden index
+            display_cols = [c for c in ["STT", "Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
             styled_li_table = style_dataframe_with_linkedin(li_view_df[display_cols])
             st.dataframe(
                 styled_li_table,
                 use_container_width=True,
+                hide_index=True,
                 column_config={
-                    "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile"),
-                    "Tìm trên Google": st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm")
+                    "STT": st.column_config.NumberColumn("STT", width="small"),
+                    "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
+                    "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
+                    "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
+                    "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
+                    "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small"),
+                    "Tiêu đề LinkedIn": st.column_config.TextColumn("Tiêu đề LinkedIn", width="large"),
+                    "Độ khớp LinkedIn": st.column_config.TextColumn("Độ khớp", width="small"),
+                    "Tìm trên Google": st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm", width="small")
                 }
             )
 
