@@ -1365,6 +1365,31 @@ with tab_linkedin:
             </div>
             ''', unsafe_allow_html=True)
 
+            # Quality Audit & Cleaning Tool
+            with st.expander("Kiểm định & Lọc sạch dữ liệu LinkedIn (Loại bỏ người nhận nhầm - Miễn phí 100%)", expanded=False):
+                st.markdown(f"""
+                <div style="font-size:0.86rem; color:#334155; line-height:1.6; margin-bottom:10px;">
+                    <div>Hệ thống áp dụng <b>cơ chế kiểm duyệt 3 lớp nghiêm ngặt (Giải pháp 1 & 4)</b>:</div>
+                    <ul style="margin:4px 0 8px 18px; padding:0; color:#475569;">
+                        <li><b>Lớp 1 (Tên chính & Họ)</b>: Bắt buộc tên chính tiếng Việt (từ cuối cùng) phải khớp chuẩn trong tiêu đề hoặc URL profile LinkedIn. Tự động loại bỏ ngay những người khác họ tên.</li>
+                        <li><b>Lớp 2 (Tín hiệu xác nhận đa điểm)</b>: Phải có ít nhất một xác nhận trùng khớp về <i>Công ty / Đơn vị</i>, <i>Trường học / Học vấn</i> hoặc <i>Chức danh chuyên môn</i>.</li>
+                        <li><b>Lớp 3 (Tuyệt đối không Fallback)</b>: Không gán bừa kết quả tìm kiếm đầu tiên nếu chưa đạt ngưỡng tin cậy cao (dưới 50 điểm sẽ để trống link thay vì nhận nhầm).</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                c_clean_btn, c_clean_note = st.columns([2, 3])
+                with c_clean_btn:
+                    if st.button("LÀM SẠCH TOÀN BỘ LINK ĐÃ QUÉT TRƯỚC ĐÂY", type="secondary", use_container_width=True, help="Tự động kiểm định lại các profile đã lưu trong CRM bằng thuật toán mới, xóa bỏ các link sai lệch mà không tốn bất kỳ lượt Serper API nào."):
+                        with st.spinner("Đang rà soát và đối chiếu lại dữ liệu theo chuẩn nghiêm ngặt..."):
+                            cleaned_df, retained_cnt, cleaned_cnt = linkedin_matcher.recheck_and_clean_dataframe(df_li)
+                            st.session_state.processed_df = cleaned_df
+                            save_crm_autosave(cleaned_df)
+                            st.success(f"Hoàn tất kiểm định: Giữ lại {retained_cnt} Profile chính xác 100% và dọn sạch {cleaned_cnt} Profile nhận nhầm!")
+                            st.rerun()
+                with c_clean_note:
+                    st.caption("Dùng dữ liệu tiêu đề và tóm tắt đã lưu sẵn trên máy, không tốn thêm bất kỳ lượt tìm kiếm Serper API nào.")
+
             # Determine matched and search link masks
             has_li_mask = df_li["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False) if "Link LinkedIn" in df_li.columns else pd.Series(False, index=df_li.index)
             has_gg_mask = df_li["Tìm trên Google"].astype(str).str.contains("http", na=False) if "Tìm trên Google" in df_li.columns else pd.Series(False, index=df_li.index)
@@ -1441,7 +1466,7 @@ with tab_linkedin:
             """, unsafe_allow_html=True)
 
             # Display table with proper column widths and hidden index
-            display_cols = [c for c in ["STT", "Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
+            display_cols = [c for c in ["STT", "Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Trường học / Học vấn", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
             styled_li_table = style_dataframe_with_linkedin(li_view_df[display_cols])
             st.dataframe(
                 styled_li_table,
@@ -1452,6 +1477,7 @@ with tab_linkedin:
                     "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
                     "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
                     "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
+                    "Trường học / Học vấn": st.column_config.TextColumn("Học vấn / Trường", width="medium"),
                     "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
                     "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small"),
                     "Tiêu đề LinkedIn": st.column_config.TextColumn("Tiêu đề LinkedIn", width="large"),
