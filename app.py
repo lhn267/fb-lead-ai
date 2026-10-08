@@ -6,8 +6,10 @@ import streamlit as st
 import importlib
 import fb_processor
 import fb_deep_crawler
+import linkedin_matcher
 importlib.reload(fb_processor)
 importlib.reload(fb_deep_crawler)
+importlib.reload(linkedin_matcher)
 from fb_processor import (
     detect_columns,
     clean_file_data,
@@ -77,7 +79,8 @@ def get_svg_icon(name: str, size: int = 18, color: str = "currentColor", extra_s
         "lightbulb": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>',
         "clipboard": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><rect width="14" height="18" x="5" y="4" rx="2"></rect><path d="M8 4V2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M9 9h6M9 13h6M9 17h4"></path></svg>',
         "sparkles": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>',
-        "info": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>'
+        "info": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {style_attr}><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>',
+        "linkedin": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="{color}" {style_attr}><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>'
     }
     return icons.get(name, "")
 
@@ -368,11 +371,24 @@ with st.sidebar:
 
     batch_size = st.slider("Kích thước gói xử lý (Batch Size)", min_value=10, max_value=50, value=saved_cfg.get("batch_size", 25), step=5)
 
+    serper_api_key = st.text_input(
+        "Serper API Key (Tìm Google / LinkedIn)",
+        value=saved_cfg.get("serper_key", ""),
+        type="password",
+        help="Dùng để tự động tìm kiếm Profile LinkedIn trên Google. Đăng ký nhận 2.500 lượt tìm kiếm miễn phí tại serper.dev"
+    )
+    st.markdown(
+        f"<a href='https://serper.dev/signup' target='_blank' style='text-decoration:none; color:#2563EB; font-weight:600; font-size:0.85rem;'>"
+        f"{get_svg_icon('external', 13, '#2563EB')} Lấy Serper API Key miễn phí (2.500 lượt)</a>",
+        unsafe_allow_html=True
+    )
+
     if st.button("Lưu Cấu Hình", use_container_width=True):
         cfg = {
             "provider": provider_code,
             "gemini_key": api_key if provider_code == "gemini" else saved_cfg.get("gemini_key", ""),
             "openai_key": api_key if provider_code == "openai" else saved_cfg.get("openai_key", ""),
+            "serper_key": serper_api_key.strip() if serper_api_key else saved_cfg.get("serper_key", ""),
             "target_criteria": target_criteria,
             "batch_size": batch_size,
             "fb_cookie": saved_cfg.get("fb_cookie", "")
@@ -418,12 +434,13 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Tabs
-tab_upload, tab_deep_crawl, tab_results, tab_analytics, tab_guide = st.tabs([
+tab_upload, tab_deep_crawl, tab_results, tab_linkedin, tab_analytics, tab_guide = st.tabs([
     "1. Nạp File & Phân Tích",
     "2. Cào Sâu Trang Cá Nhân",
     "3. Bảng Kết Quả CRM",
-    "4. Biểu Đồ Phân Tích",
-    "5. Hướng Dẫn Sử Dụng"
+    "4. Ghép Nối LinkedIn",
+    "5. Biểu Đồ Phân Tích",
+    "6. Hướng Dẫn Sử Dụng"
 ])
 
 
@@ -983,12 +1000,18 @@ with tab_results:
         st.write(f"Hiển thị **{len(filtered_df)}** / {len(res_df)} kết quả phù hợp:")
 
         # Interactive Data Table
+        tab3_col_config = {
+            "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở Profile FB")
+        }
+        if "Link LinkedIn" in filtered_df.columns:
+            tab3_col_config["Link LinkedIn"] = st.column_config.LinkColumn("Link LinkedIn", display_text="Mở LinkedIn")
+        if "Tìm trên Google" in filtered_df.columns:
+            tab3_col_config["Tìm trên Google"] = st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm")
+
         st.dataframe(
             filtered_df,
             use_container_width=True,
-            column_config={
-                "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở Profile FB")
-            }
+            column_config=tab3_col_config
         )
 
         st.markdown("---")
@@ -1025,7 +1048,249 @@ with tab_results:
                 use_container_width=True
             )
 
-# ----------------- TAB 4: ANALYTICS -----------------
+# ----------------- TAB 4: LINKEDIN MATCHING -----------------
+with tab_linkedin:
+    st.markdown(f"""
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom: 8px;">
+        <span class="icon-pill icon-pill-blue" style="width:40px; height:40px; background:#0A66C2;">{get_svg_icon('linkedin', 22, '#FFFFFF')}</span>
+        <div>
+            <div style="font-size:1.35rem; font-weight:800; color:#0A66C2;">Tìm Kiếm & Ghép Nối Profile LinkedIn Tự Động</div>
+            <div style="font-size:0.9rem; color:#4B5563;">Định danh Profile LinkedIn qua Google Dorking: <code>site:linkedin.com/in "[Họ tên]" "[Tên công ty]"</code></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.session_state.processed_df is None:
+        st.markdown(f"""
+        <div class="alert-info">
+            <span class="icon-pill icon-pill-blue">{get_svg_icon('info', 18, '#2563EB')}</span>
+            <span>Chưa có dữ liệu CRM để ghép nối LinkedIn. Vui lòng tải file ở Tab 1 hoặc Cào sâu ở Tab 2 trước!</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        df_li = st.session_state.processed_df.copy()
+        total_crm_leads = len(df_li)
+
+        # Count stats
+        has_li_count = df_li["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).sum() if "Link LinkedIn" in df_li.columns else 0
+        high_tier_count = len(df_li[df_li["Phân loại Lead"] == "Tiềm năng cao"])
+        mid_tier_count = len(df_li[df_li["Phân loại Lead"] == "Tiềm năng trung bình"])
+        has_company_count = len(df_li[df_li["Tên công ty / Đơn vị"].ne("Chưa cập nhật") & df_li["Tên công ty / Đơn vị"].ne("Ảo") & ~df_li["Tên công ty / Đơn vị"].isna()])
+
+        # KPI Summary cards
+        c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
+        with c_kpi1:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("users", 14, "#2563EB")}</span>
+                    <span>TỔNG LEAD CRM</span>
+                </div>
+                <div class="metric-val">{total_crm_leads}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with c_kpi2:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon("star", 14, "#059669")}</span>
+                    <span>MỤC TIÊU TIỀM NĂNG</span>
+                </div>
+                <div class="metric-val val-green">{high_tier_count + mid_tier_count}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with c_kpi3:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-amber icon-pill-sm">{get_svg_icon("building", 14, "#D97706")}</span>
+                    <span>CÓ CÔNG TY RÕ RÀNG</span>
+                </div>
+                <div class="metric-val val-amber">{has_company_count}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with c_kpi4:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("linkedin", 14, "#0A66C2")}</span>
+                    <span>ĐÃ MATCH LINKEDIN</span>
+                </div>
+                <div class="metric-val val-blue">{has_li_count}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Configuration options
+        st.markdown(f'''
+        <div class="section-title">
+            <span class="icon-pill icon-pill-blue">{get_svg_icon("filter", 18, "#2563EB")}</span>
+            <span>Cấu Hình Tệp Matching & Phương Thức</span>
+        </div>
+        ''', unsafe_allow_html=True)
+
+        opt_col1, opt_col2 = st.columns(2)
+        with opt_col1:
+            target_filter = st.selectbox(
+                "Chọn tệp đối tượng cần tìm LinkedIn:",
+                options=[
+                    f"1. Nhóm Tiềm năng cao ({high_tier_count} người) [Khuyên dùng]",
+                    f"2. Cả Tiềm năng cao & Trung bình ({high_tier_count + mid_tier_count} người)",
+                    f"3. Tất cả những người có tên công ty ({has_company_count} người)",
+                    f"4. Toàn bộ danh bạ ({total_crm_leads} người)"
+                ],
+                index=0
+            )
+
+        with opt_col2:
+            search_mode = st.radio(
+                "Phương thức tìm kiếm LinkedIn:",
+                options=[
+                    "Google Serper API (Tự động 100%, siêu tốc ~20s)",
+                    "Tạo link Google 1-Click (100% Miễn phí, không cần API Key)"
+                ],
+                index=0,
+                horizontal=True
+            )
+
+        # Serper API Key input if using mode 1
+        serper_key_input = saved_cfg.get("serper_key", "")
+        if "Serper" in search_mode:
+            s_col1, s_col2 = st.columns([3, 2])
+            with s_col1:
+                serper_key_input = st.text_input(
+                    "Serper API Key (Tìm kiếm Google):",
+                    value=serper_key_input,
+                    type="password",
+                    help="Nhận 2.500 lượt tìm kiếm Google miễn phí trong 30 giây tại serper.dev"
+                )
+            with s_col2:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<a href='https://serper.dev/signup' target='_blank' style='display:inline-flex; align-items:center; gap:6px; background:#EFF6FF; border:1px solid #BFDBFE; padding:7px 14px; border-radius:8px; color:#2563EB; font-weight:600; text-decoration:none; font-size:0.88rem;'>"
+                    f"{get_svg_icon('external', 14, '#2563EB')} Đăng ký lấy Serper API Key (Free 2.500 lượt)</a>",
+                    unsafe_allow_html=True
+                )
+            if serper_key_input and serper_key_input != saved_cfg.get("serper_key", ""):
+                saved_cfg["serper_key"] = serper_key_input.strip()
+                save_user_config(saved_cfg)
+
+        # Filter the target dataframe
+        if "1. Nhóm Tiềm năng cao" in target_filter:
+            target_df = df_li[df_li["Phân loại Lead"] == "Tiềm năng cao"].copy()
+        elif "2. Cả Tiềm năng cao" in target_filter:
+            target_df = df_li[df_li["Phân loại Lead"].isin(["Tiềm năng cao", "Tiềm năng trung bình"])].copy()
+        elif "3. Tất cả những người có tên công ty" in target_filter:
+            target_df = df_li[df_li["Tên công ty / Đơn vị"].ne("Chưa cập nhật") & df_li["Tên công ty / Đơn vị"].ne("Ảo") & ~df_li["Tên công ty / Đơn vị"].isna()].copy()
+        else:
+            target_df = df_li.copy()
+
+        # Batch slice limit
+        s_count_col1, s_count_col2 = st.columns(2)
+        with s_count_col1:
+            match_limit = st.number_input(
+                "Số lượng muốn quét đợt này:",
+                min_value=1,
+                max_value=max(1, len(target_df)),
+                value=min(len(target_df), 100),
+                step=10,
+                help="Bạn có thể quét từng đợt 50 - 100 người để kiểm tra kết quả ngay."
+            )
+        with s_count_col2:
+            st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+            st.markdown(f"Đang chọn **{match_limit} người** trong tổng số **{len(target_df)} người** của tệp lọc.")
+
+        # Trigger button
+        btn_m1, _ = st.columns([2, 3])
+        with btn_m1:
+            run_match_btn = st.button("BẮT ĐẦU TÌM KIẾM & GHÉP NỐI LINKEDIN", type="primary", use_container_width=True)
+
+        if run_match_btn:
+            if "Serper" in search_mode and not serper_key_input.strip():
+                st.warning("Bạn chưa nhập Serper API Key! Vui lòng dán Key ở trên (hoặc chọn phương thức 'Tạo link Google 1-Click' để chạy miễn phí không cần Key).")
+            else:
+                subset_to_match = target_df.head(int(match_limit)).copy()
+                p_bar_li = st.progress(0)
+                status_li = st.empty()
+
+                def update_li_progress(done, total, msg):
+                    pct = int((done / total) * 100) if total > 0 else 0
+                    p_bar_li.progress(min(pct, 100))
+                    status_li.text(msg)
+
+                eff_serper = serper_key_input.strip() if "Serper" in search_mode else ""
+                t_start = time.time()
+                
+                matched_subset = linkedin_matcher.match_leads_dataframe(
+                    df=subset_to_match,
+                    serper_key=eff_serper,
+                    max_workers=5,
+                    progress_callback=update_li_progress
+                )
+
+                # Merge matched columns back to main processed_df
+                for _, m_row in matched_subset.iterrows():
+                    fb_link = m_row.get("Link Facebook", "")
+                    name_r = m_row.get("Họ và tên", "")
+                    if fb_link and "Link Facebook" in df_li.columns:
+                        mask = df_li["Link Facebook"] == fb_link
+                    else:
+                        mask = df_li["Họ và tên"] == name_r
+                    
+                    df_li.loc[mask, "Link LinkedIn"] = m_row.get("Link LinkedIn", "")
+                    df_li.loc[mask, "Tiêu đề LinkedIn"] = m_row.get("Tiêu đề LinkedIn", "")
+                    df_li.loc[mask, "Tóm tắt LinkedIn"] = m_row.get("Tóm tắt LinkedIn", "")
+                    df_li.loc[mask, "Độ khớp LinkedIn"] = m_row.get("Độ khớp LinkedIn", "")
+                    df_li.loc[mask, "Tìm trên Google"] = m_row.get("Tìm trên Google", "")
+
+                st.session_state.processed_df = df_li
+                save_crm_autosave(df_li)
+                p_bar_li.progress(100)
+                t_dur = round(time.time() - t_start, 1)
+
+                found_new = matched_subset["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).sum()
+                status_li.success(f"Hoàn tất ghép nối cho {len(matched_subset)} người trong {t_dur}s (Tìm thấy {found_new} Profile LinkedIn)! Dữ liệu đã được lưu an toàn vào máy.")
+
+        # Show Table of matched leads
+        if "Link LinkedIn" in df_li.columns or "Tìm trên Google" in df_li.columns:
+            st.markdown("---")
+            st.markdown(f'''
+            <div class="section-title">
+                <span class="icon-pill icon-pill-blue">{get_svg_icon("table", 18, "#2563EB")}</span>
+                <span>Bảng Kết Quả Đã Ghép Nối LinkedIn</span>
+            </div>
+            ''', unsafe_allow_html=True)
+
+            li_view_df = df_li[df_li["Link LinkedIn"].astype(str).ne("") & df_li["Link LinkedIn"].astype(str).ne("nan") | df_li["Tìm trên Google"].astype(str).ne("") & df_li["Tìm trên Google"].astype(str).ne("nan")].copy()
+            if li_view_df.empty:
+                li_view_df = df_li.head(20).copy()
+
+            # Display table
+            display_cols = [c for c in ["Họ và tên", "Tên công ty / Đơn vị", "Chức vụ", "Cấp bậc", "Link LinkedIn", "Tiêu đề LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"] if c in li_view_df.columns]
+            st.dataframe(
+                li_view_df[display_cols],
+                use_container_width=True,
+                column_config={
+                    "Link LinkedIn": st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile"),
+                    "Tìm trên Google": st.column_config.LinkColumn("Tìm Google", display_text="Tìm kiếm")
+                }
+            )
+
+            # Export Excel with LinkedIn
+            exp_li_col1, _ = st.columns([3, 4])
+            with exp_li_col1:
+                li_excel_bytes = export_styled_excel(df_li)
+                st.download_button(
+                    label="Tải File Excel Đầy Đủ Kèm Link LinkedIn (.xlsx)",
+                    data=li_excel_bytes,
+                    file_name="facebook_leads_crm_with_linkedin.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+
+# ----------------- TAB 5: ANALYTICS -----------------
 with tab_analytics:
     if st.session_state.processed_df is None:
         st.markdown(f"""
