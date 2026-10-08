@@ -880,14 +880,14 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
     ws.title = "Data Khách Hàng Tiềm Năng"
     ws.views.sheetView[0].showGridLines = True
 
-    # Color definitions
+    # Color definitions (Soft pastel tints that highlight entire rows cleanly)
     header_fill = PatternFill(start_color="1A365D", end_color="1A365D", fill_type="solid") # Dark Navy
     header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
     
-    tier_high_fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid") # Soft green
-    tier_mid_fill = PatternFill(start_color="CFF4FC", end_color="CFF4FC", fill_type="solid")  # Soft blue
-    tier_trash_fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")# Soft red
-    tier_none_fill = PatternFill(start_color="E2E3E5", end_color="E2E3E5", fill_type="solid") # Soft gray
+    tier_high_fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid") # Soft mint green (LinkedIn / Cao)
+    tier_mid_fill = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")  # Soft sky blue (Trung bình)
+    tier_trash_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")# Soft light red (Rác / Thiếu TT)
+    tier_none_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid") # Soft light gray (Thấp / Chưa cập nhật)
 
     thin_border = Border(
         left=Side(style='thin', color='DDDDDD'),
@@ -917,28 +917,46 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
         tier_val = str(row_data[headers.index(tier_col_name)]) if tier_col_name else ""
         status_val = str(row_data[headers.index("Đánh giá")]) if "Đánh giá" in headers else ""
 
-        # Row color highlight based on info completeness tier
-        row_fill = None
-        if "Cao" in tier_val or "C-Level" in str(row_data):
-            row_fill = tier_high_fill
-        elif "Trung bình" in tier_val:
-            row_fill = tier_mid_fill
-        elif "Rác" in status_val or "Thiếu thông tin" in tier_val or "Bỏ qua" in tier_val:
-            row_fill = tier_trash_fill
-        elif "Thấp" in tier_val or "Không có thông tin" in status_val:
-            row_fill = tier_none_fill
-
+        # Check if row has valid LinkedIn profile URL
         has_li_link = False
         if "Link LinkedIn" in headers:
             li_idx = headers.index("Link LinkedIn")
             if "linkedin.com/in" in str(row_data[li_idx]):
                 has_li_link = True
 
+        # Determine full-row color fill based on user request:
+        # If green -> highlight entire row in green!
+        # Other colors (blue, red, gray) also highlight their ENTIRE row!
+        row_fill = None
+        is_bold = False
+        if has_li_link:
+            # Having LinkedIn profile is high-priority -> entire row is soft green!
+            row_fill = tier_high_fill
+            is_bold = True
+        elif "Cao" in tier_val or "C-Level" in str(row_data):
+            row_fill = tier_high_fill
+            is_bold = False
+        elif "Trung bình" in tier_val:
+            row_fill = tier_mid_fill
+            is_bold = False
+        elif "Rác" in status_val or "Thiếu thông tin" in tier_val or "Bỏ qua" in tier_val:
+            row_fill = tier_trash_fill
+            is_bold = False
+        elif "Thấp" in tier_val or "Không có thông tin" in status_val:
+            row_fill = tier_none_fill
+            is_bold = False
+
+        # Apply formatting across ALL columns in this row
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             header_name = headers[col_idx - 1]
 
-            if has_li_link:
+            # 1. Fill entire row with row color
+            if row_fill:
+                cell.fill = row_fill
+
+            # 2. Base font styling (bold if LinkedIn profile found)
+            if is_bold:
                 cell.font = Font(name="Arial", size=10, bold=True)
             else:
                 cell.font = Font(name="Arial", size=10)
@@ -946,25 +964,18 @@ def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
             cell.border = thin_border
             cell.alignment = Alignment(vertical="center")
 
-            # Make Facebook link clickable
+            # 3. Clickable link formatting
             if header_name == "Link Facebook" and str(cell.value).startswith("http"):
                 cell.hyperlink = str(cell.value)
-                cell.font = Font(name="Arial", size=10, color="0000FF", underline="single", bold=has_li_link)
+                cell.font = Font(name="Arial", size=10, color="0000FF", underline="single", bold=is_bold)
 
-            # Make LinkedIn link clickable & highlighted
             if header_name == "Link LinkedIn" and "linkedin.com/in" in str(cell.value):
                 cell.hyperlink = str(cell.value)
                 cell.font = Font(name="Arial", size=10, color="0A66C2", underline="single", bold=True)
-                cell.fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid")
 
-            # Make Google search link clickable
             if header_name == "Tìm trên Google" and str(cell.value).startswith("http"):
                 cell.hyperlink = str(cell.value)
-                cell.font = Font(name="Arial", size=10, color="4B5563", underline="single")
-
-            # Apply background tint to key columns (Độ đầy đủ thông tin, Cấp bậc, Đánh giá)
-            if header_name in ["Độ đầy đủ thông tin", "Phân loại Lead", "Cấp bậc", "Đánh giá"] and row_fill:
-                cell.fill = row_fill
+                cell.font = Font(name="Arial", size=10, color="4B5563", underline="single", bold=is_bold)
 
     # Auto fit column widths
     for col in ws.columns:
