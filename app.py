@@ -1258,19 +1258,10 @@ with tab_linkedin:
                 )
 
                 # Merge matched columns back to main processed_df
-                for _, m_row in matched_subset.iterrows():
-                    fb_link = m_row.get("Link Facebook", "")
-                    name_r = m_row.get("Họ và tên", "")
-                    if fb_link and "Link Facebook" in df_li.columns:
-                        mask = df_li["Link Facebook"] == fb_link
-                    else:
-                        mask = df_li["Họ và tên"] == name_r
-                    
-                    df_li.loc[mask, "Link LinkedIn"] = m_row.get("Link LinkedIn", "")
-                    df_li.loc[mask, "Tiêu đề LinkedIn"] = m_row.get("Tiêu đề LinkedIn", "")
-                    df_li.loc[mask, "Tóm tắt LinkedIn"] = m_row.get("Tóm tắt LinkedIn", "")
-                    df_li.loc[mask, "Độ khớp LinkedIn"] = m_row.get("Độ khớp LinkedIn", "")
-                    df_li.loc[mask, "Tìm trên Google"] = m_row.get("Tìm trên Google", "")
+                for col in ["Link LinkedIn", "Tiêu đề LinkedIn", "Tóm tắt LinkedIn", "Độ khớp LinkedIn", "Tìm trên Google"]:
+                    if col not in df_li.columns:
+                        df_li[col] = ""
+                    df_li.loc[matched_subset.index, col] = matched_subset[col]
 
                 st.session_state.processed_df = df_li
                 save_crm_autosave(df_li)

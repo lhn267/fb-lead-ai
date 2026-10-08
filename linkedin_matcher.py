@@ -233,35 +233,35 @@ def match_leads_dataframe(
     Uses multi-threading for rapid execution.
     """
     out_df = df.copy()
-    total_leads = len(out_df)
-    results_map = {}
-
-    rows_data = [(idx, row.to_dict()) for idx, row in out_df.iterrows()]
+    rows_data = [row.to_dict() for _, row in out_df.iterrows()]
+    total_leads = len(rows_data)
+    results_list = [None] * total_leads
 
     if not serper_key:
         # Just generate 1-click Google search links instantly without API
-        for idx, r_dict in rows_data:
+        for pos, r_dict in enumerate(rows_data):
             match_res = match_single_lead(r_dict, "")
-            results_map[idx] = match_res
+            results_list[pos] = match_res
             if progress_callback:
-                progress_callback(idx + 1, total_leads, f"Tạo liên kết tra cứu: {idx+1}/{total_leads}")
+                progress_callback(pos + 1, total_leads, f"Tạo liên kết tra cứu: {pos+1}/{total_leads}")
     else:
         # Concurrent API calls
         done_count = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_idx = {
-                executor.submit(match_single_lead, r_dict, serper_key): idx
-                for idx, r_dict in rows_data
+            future_to_pos = {
+                executor.submit(match_single_lead, r_dict, serper_key): pos
+                for pos, r_dict in enumerate(rows_data)
             }
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
+            for future in as_completed(future_to_pos):
+                pos = future_to_pos[future]
+                r_dict = rows_data[pos]
+                name = str(r_dict.get("Họ và tên", ""))
+                comp = str(r_dict.get("Tên công ty / Đơn vị", ""))
                 try:
                     res = future.result()
-                    results_map[idx] = res
+                    results_list[pos] = res
                 except Exception:
-                    name = str(rows_data[idx][1].get("Họ và tên", ""))
-                    comp = str(rows_data[idx][1].get("Tên công ty / Đơn vị", ""))
-                    results_map[idx] = {
+                    results_list[pos] = {
                         "Link LinkedIn": "",
                         "Tiêu đề LinkedIn": "Lỗi kết nối tra cứu",
                         "Tóm tắt LinkedIn": "",
@@ -270,28 +270,14 @@ def match_leads_dataframe(
                     }
                 done_count += 1
                 if progress_callback:
-                    name_cur = str(rows_data[idx][1].get("Họ và tên", ""))
-                    progress_callback(done_count, total_leads, f"Đang tra cứu LinkedIn ({done_count}/{total_leads}): {name_cur}")
+                    progress_callback(done_count, total_leads, f"Đang tra cứu LinkedIn ({done_count}/{total_leads}): {name}")
 
     # Assign new columns to DataFrame
-    linkedin_links = []
-    linkedin_titles = []
-    linkedin_snippets = []
-    linkedin_matches = []
-    google_links = []
-
-    for idx in range(len(out_df)):
-        r = results_map.get(idx, {})
-        linkedin_links.append(r.get("Link LinkedIn", ""))
-        linkedin_titles.append(r.get("Tiêu đề LinkedIn", ""))
-        linkedin_snippets.append(r.get("Tóm tắt LinkedIn", ""))
-        linkedin_matches.append(r.get("Độ khớp LinkedIn", ""))
-        google_links.append(r.get("Link Google Search", ""))
-
-    out_df["Link LinkedIn"] = linkedin_links
-    out_df["Tiêu đề LinkedIn"] = linkedin_titles
-    out_df["Tóm tắt LinkedIn"] = linkedin_snippets
-    out_df["Độ khớp LinkedIn"] = linkedin_matches
-    out_df["Tìm trên Google"] = google_links
+    out_df["Link LinkedIn"] = [r.get("Link LinkedIn", "") if r else "" for r in results_list]
+    out_df["Tiêu đề LinkedIn"] = [r.get("Tiêu đề LinkedIn", "") if r else "" for r in results_list]
+    out_df["Tóm tắt LinkedIn"] = [r.get("Tóm tắt LinkedIn", "") if r else "" for r in results_list]
+    out_df["Độ khớp LinkedIn"] = [r.get("Độ khớp LinkedIn", "") if r else "" for r in results_list]
+    out_df["Tìm trên Google"] = [r.get("Link Google Search", "") if r else "" for r in results_list]
 
     return out_df
+
