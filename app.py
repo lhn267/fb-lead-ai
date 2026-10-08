@@ -987,7 +987,13 @@ with tab_results:
         </div>
         ''', unsafe_allow_html=True)
         
-        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+        f_col0, f_col1, f_col2, f_col3, f_col4 = st.columns(5)
+
+        with f_col0:
+            raw_entity_vals = list(res_df["Loại hình đơn vị"].dropna().unique()) if "Loại hình đơn vị" in res_df.columns else []
+            entity_order = ["Công ty", "Hộ kinh doanh", "Cá nhân", "Chưa xác định"]
+            entity_options = ["Tất cả"] + [e for e in entity_order if e in raw_entity_vals] + [e for e in raw_entity_vals if e not in entity_order]
+            sel_entity = st.selectbox("Loại hình đơn vị", options=entity_options, index=0)
 
         with f_col1:
             tier_options = ["Tất cả"] + list(res_df[tier_col].unique())
@@ -1002,10 +1008,12 @@ with tab_results:
             sel_level = st.selectbox("Cấp bậc chức vụ", options=level_options, index=0)
 
         with f_col4:
-            search_kw = st.text_input("Tìm kiếm (Tên, Công ty, Ngành, Trường)", value="", placeholder="Nhập từ khóa...")
+            search_kw = st.text_input("Tìm kiếm (Tên, Công ty, Ngành...)", value="", placeholder="Nhập từ khóa...")
 
         # Apply Filters
         filtered_df = res_df.copy()
+        if sel_entity != "Tất cả" and "Loại hình đơn vị" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Loại hình đơn vị"] == sel_entity]
         if sel_tier != "Tất cả":
             filtered_df = filtered_df[filtered_df[tier_col] == sel_tier]
         if sel_status != "Tất cả":
@@ -1018,6 +1026,7 @@ with tab_results:
                 filtered_df["Họ và tên"].str.lower().str.contains(kw, na=False) |
                 filtered_df["Tên công ty / Đơn vị"].str.lower().str.contains(kw, na=False) |
                 (filtered_df["Tên công ty chuẩn hóa"].str.lower().str.contains(kw, na=False) if "Tên công ty chuẩn hóa" in filtered_df.columns else False) |
+                (filtered_df["Loại hình đơn vị"].str.lower().str.contains(kw, na=False) if "Loại hình đơn vị" in filtered_df.columns else False) |
                 (filtered_df["Trường học / Học vấn"].str.lower().str.contains(kw, na=False) if "Trường học / Học vấn" in filtered_df.columns else False) |
                 filtered_df["Chức vụ"].str.lower().str.contains(kw, na=False) |
                 filtered_df["Lĩnh vực / Ngành nghề"].str.lower().str.contains(kw, na=False)
@@ -1028,8 +1037,21 @@ with tab_results:
         # Interactive Data Table
         filtered_df = clean_and_reorder_crm_dataframe(filtered_df)
         tab3_col_config = {
+            "STT": st.column_config.NumberColumn("STT", width="small"),
+            "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
+            "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
+            "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
+            "Tên công ty chuẩn hóa": st.column_config.TextColumn("Công ty chuẩn hóa", width="medium"),
+            "Loại hình đơn vị": st.column_config.TextColumn("Loại hình đơn vị", width="small"),
+            "Trường học / Học vấn": st.column_config.TextColumn("Học vấn / Trường", width="medium"),
+            "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
+            "Lĩnh vực / Ngành nghề": st.column_config.TextColumn("Lĩnh vực", width="small"),
+            "Đánh giá": st.column_config.TextColumn("Đánh giá", width="small"),
+            "Độ đầy đủ thông tin": st.column_config.TextColumn("Độ đầy đủ TT", width="small"),
             "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở FB", width="small")
         }
+        if "Độ khớp LinkedIn" in filtered_df.columns:
+            tab3_col_config["Độ khớp LinkedIn"] = st.column_config.TextColumn("Độ khớp", width="small")
         if "Link LinkedIn" in filtered_df.columns:
             tab3_col_config["Link LinkedIn"] = st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small")
         if "Tìm trên Google" in filtered_df.columns:
@@ -1484,6 +1506,7 @@ with tab_linkedin:
                     "Chức vụ",
                     "Tên công ty / Đơn vị",
                     "Tên công ty chuẩn hóa",
+                    "Loại hình đơn vị",
                     "Trường học / Học vấn",
                     "Cấp bậc",
                     "Lĩnh vực / Ngành nghề",
@@ -1504,6 +1527,7 @@ with tab_linkedin:
                     "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
                     "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
                     "Tên công ty chuẩn hóa": st.column_config.TextColumn("Công ty chuẩn hóa", width="medium"),
+                    "Loại hình đơn vị": st.column_config.TextColumn("Loại hình đơn vị", width="small"),
                     "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
                     "Trường học / Học vấn": st.column_config.TextColumn("Học vấn / Trường", width="medium"),
                     "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
@@ -1541,8 +1565,22 @@ with tab_analytics:
     else:
         df_an = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
 
-        an_col1, an_col2 = st.columns(2)
+        an_col1, an_col2, an_col3 = st.columns(3)
         with an_col1:
+            st.markdown(f'''
+            <div class="section-title">
+                <span class="icon-pill icon-pill-emerald">{get_svg_icon("building", 18, "#059669")}</span>
+                <span>Phân Bổ Loại Hình Đơn Vị</span>
+            </div>
+            ''', unsafe_allow_html=True)
+            if "Loại hình đơn vị" in df_an.columns:
+                entity_counts = df_an["Loại hình đơn vị"].value_counts().reset_index()
+                entity_counts.columns = ["Loại hình", "Số lượng"]
+                st.bar_chart(data=entity_counts, x="Loại hình", y="Số lượng")
+            else:
+                st.write("Chưa có dữ liệu loại hình đơn vị.")
+
+        with an_col2:
             st.markdown(f'''
             <div class="section-title">
                 <span class="icon-pill icon-pill-blue">{get_svg_icon("chart", 18, "#2563EB")}</span>
@@ -1553,11 +1591,11 @@ with tab_analytics:
             level_counts.columns = ["Cấp bậc", "Số lượng"]
             st.bar_chart(data=level_counts, x="Cấp bậc", y="Số lượng")
 
-        with an_col2:
+        with an_col3:
             st.markdown(f'''
             <div class="section-title">
                 <span class="icon-pill icon-pill-amber">{get_svg_icon("target", 18, "#D97706")}</span>
-                <span>Phân Bổ Độ Đầy Đủ Thông Tin</span>
+                <span>Độ Đầy Đủ Thông Tin</span>
             </div>
             ''', unsafe_allow_html=True)
             tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in df_an.columns else "Phân loại Lead"

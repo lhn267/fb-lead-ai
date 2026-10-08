@@ -579,6 +579,159 @@ def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
         "reason": "Phân tích tự động bằng bộ quy tắc thông minh (Offline)"
     }
 
+def map_to_info_completeness(tier_or_status: str, company: str = "", job: str = "") -> str:
+    """
+    Maps lead tier or data quality to 'Độ đầy đủ thông tin' (Cao, Trung bình, Thấp, Thiếu thông tin)
+    for downstream data enrichment and pain point matching.
+    """
+    t = str(tier_or_status).strip()
+    if t in ["Cao", "Trung bình", "Thấp", "Thiếu thông tin"]:
+        return t
+    if "Tiềm năng cao" in t:
+        return "Cao"
+    if "Tiềm năng trung bình" in t:
+        return "Trung bình"
+    if "Tiềm năng thấp" in t:
+        return "Thấp"
+    if "Bỏ qua" in t or "Rác" in t or "Không có" in t:
+        return "Thiếu thông tin"
+    
+    # Heuristic based on presence of company & job
+    has_comp = bool(company and company not in ["Chưa cập nhật", "Ảo", "nan"])
+    has_job = bool(job and job not in ["Chưa cập nhật", "Worked", "University", "Ảo / Đùa cợt", "nan"])
+    if has_comp and has_job:
+        return "Cao"
+    elif has_comp or has_job:
+        return "Trung bình"
+    else:
+        return "Thấp"
+
+def classify_business_entity(comp_norm: str = "", comp_raw: str = "", job_title: str = "", level: str = "") -> str:
+    """
+    Phân loại loại hình đơn vị:
+    - 'Công ty': Công ty Cổ phần, TNHH, Tập đoàn, Tổng công ty, Ngân hàng, Doanh nghiệp...
+    - 'Hộ kinh doanh': Cửa hàng, Shop, Spa, Studio, Phòng khám, Tiệm, Quán, Hộ kinh doanh...
+    - 'Cá nhân': Freelancer, Tự do, Chuyên gia tự do, Sinh viên, Học viên, Huấn luyện viên cá nhân...
+    - 'Chưa xác định': Ảo, Đùa cợt, hoặc không có thông tin việc làm / công ty.
+    """
+    c_norm = str(comp_norm).strip().lower() if pd.notna(comp_norm) else ""
+    c_raw = str(comp_raw).strip().lower() if pd.notna(comp_raw) else ""
+    j = str(job_title).strip().lower() if pd.notna(job_title) else ""
+    lvl = str(level).strip().lower() if pd.notna(level) else ""
+
+    # 1. Check for Invalid / Blank / Virtual first
+    if not c_norm and not c_raw and not j:
+        return "Chưa xác định"
+    if all(x in ["", "chưa cập nhật", "ảo", "đùa cợt", "nan", "none"] for x in [c_norm, c_raw]) and (not j or j in ["chưa cập nhật", "ảo / đùa cợt", "nan", "none"]):
+        return "Chưa xác định"
+    
+    # 2. Check for Cá nhân (Freelancer, Tự do, Sinh viên, Học sinh)
+    freelance_kw = ["freelancer", "freelance", "tự do", "tự kinh doanh", "kinh doanh tự do", "sinh viên", "học sinh", "chuyên gia tư vấn tự do", "cá nhân"]
+    if any(k in j for k in ["freelancer", "freelance", "tự do", "sinh viên", "học sinh"]) or any(k in lvl for k in ["freelance", "tự do", "sinh viên"]):
+        if not any(k in c_norm for k in ["công ty", "tnhh", "cổ phần", "jsc", "tập đoàn", "corp", "ngân hàng", "bank"]):
+            return "Cá nhân"
+
+    # 3. Check for Hộ kinh doanh / Cửa hàng / Shop / Dịch vụ nhỏ
+    household_kw = [
+        "hộ kinh doanh", "cửa hàng", "shop", "spa", "studio", "tiệm", "quán", "salon", 
+        "nha khoa", "phòng khám", "bếp", "thời trang", "boutique", "homestay", "bakery", 
+        "quán cafe", "quán ăn", "makeup", "bridal", "nail", "coffee", "farm", "food"
+    ]
+    is_explicit_company = any(k in c_norm or k in c_raw for k in [
+        "công ty", "cty", "tnhh", "cổ phần", "cp", "jsc", "corp", "corporation", 
+        "group", "tập đoàn", "tổng công ty", "ngân hàng", "bank", "chi nhánh", "viện nghiên cứu", "trường đại học"
+    ])
+    
+    if any(k in c_norm or k in c_raw for k in household_kw):
+        if not is_explicit_company or any(k in c_norm for k in ["shop", "spa", "studio", "hộ kinh doanh", "tiệm", "quán"]):
+            return "Hộ kinh doanh"
+
+    # 4. Check for Công ty
+    if is_explicit_company:
+        return "Công ty"
+
+    company_signals = [
+        "doanh nghiệp", "enterprise", "inc", "ltd", "holding", "holdings", "agency", 
+        "solutions", "software", "tech", "media", "logistic", "logistics", "securities", 
+        "finance", "capital", "phát triển", "đầu tư", "bất động sản", "xây dựng", "thương mại", "dịch vụ"
+    ]
+    if any(k in c_norm or k in c_raw for k in company_signals):
+        return "Công ty"
+
+    corporate_jobs = ["ceo", "giám đốc", "director", "manager", "trưởng phòng", "phó phòng", "quản lý", "chuyên viên", "kỹ sư", "developer", "kế toán", "trưởng nhóm", "leader", "nhân viên", "founder", "co-founder", "chủ tịch"]
+    if c_norm and c_norm not in ["chưa cập nhật", "ảo", "nan"] and any(k in j for k in corporate_jobs):
+        return "Công ty"
+
+    if c_norm and c_norm not in ["chưa cập nhật", "ảo", "nan"] and len(c_norm) > 2:
+        return "Công ty"
+
+    if any(k in j for k in ["coach", "tư vấn", "môi giới", "bán hàng online", "ctv", "cộng tác viên", "kinh doanh"]):
+        return "Cá nhân"
+
+    return "Chưa xác định"
+
+def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardizes CRM dataframe according to user specification:
+    1. Renames 'Phân loại Lead' -> 'Độ đầy đủ thông tin' (mapped to Cao, Trung bình, Thấp, Thiếu thông tin).
+    2. Adds 'Loại hình đơn vị' (Công ty, Hộ kinh doanh, Cá nhân, Chưa xác định) between 'Tên công ty chuẩn hóa' and 'Trường học / Học vấn'.
+    3. Drops raw verbose columns: 'Mô tả gốc', 'Ghi chú AI', 'Tiêu đề LinkedIn', 'Tóm tắt LinkedIn'.
+    4. Reorders columns so link columns are consecutive at the end: Link Facebook -> Link LinkedIn -> Tìm trên Google.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # 1. Rename Phân loại Lead -> Độ đầy đủ thông tin
+    if "Phân loại Lead" in out.columns and "Độ đầy đủ thông tin" not in out.columns:
+        out["Độ đầy đủ thông tin"] = out["Phân loại Lead"].map(lambda x: map_to_info_completeness(str(x)))
+        out.drop(columns=["Phân loại Lead"], inplace=True)
+    elif "Độ đầy đủ thông tin" in out.columns:
+        out["Độ đầy đủ thông tin"] = out["Độ đầy đủ thông tin"].map(lambda x: map_to_info_completeness(str(x)))
+
+    # 2. Populate 'Loại hình đơn vị' if not present or contains empty/null values
+    if "Loại hình đơn vị" not in out.columns:
+        out["Loại hình đơn vị"] = [
+            classify_business_entity(
+                row.get("Tên công ty chuẩn hóa", ""),
+                row.get("Tên công ty / Đơn vị", ""),
+                row.get("Chức vụ", ""),
+                row.get("Cấp bậc", "")
+            )
+            for _, row in out.iterrows()
+        ]
+    else:
+        out["Loại hình đơn vị"] = out["Loại hình đơn vị"].fillna("Chưa xác định")
+
+    # 3. Drop unwanted verbose columns
+    cols_to_drop = ["Mô tả gốc", "Ghi chú AI", "Tiêu đề LinkedIn", "Tóm tắt LinkedIn"]
+    out.drop(columns=[c for c in cols_to_drop if c in out.columns], inplace=True)
+
+    # 4. Target column ordering:
+    # 'Loại hình đơn vị' is strictly placed between 'Tên công ty chuẩn hóa' and 'Trường học / Học vấn'
+    desired_order = [
+        "STT",
+        "Họ và tên",
+        "Chức vụ",
+        "Tên công ty / Đơn vị",
+        "Tên công ty chuẩn hóa",
+        "Loại hình đơn vị",
+        "Trường học / Học vấn",
+        "Cấp bậc",
+        "Lĩnh vực / Ngành nghề",
+        "Đánh giá",
+        "Độ đầy đủ thông tin",
+        "Độ khớp LinkedIn",
+        "Link Facebook",
+        "Link LinkedIn",
+        "Tìm trên Google"
+    ]
+
+    existing_desired = [c for c in desired_order if c in out.columns]
+    remaining_cols = [c for c in out.columns if c not in desired_order]
+    return out[existing_desired + remaining_cols]
+
 def process_friends_dataframe(
     df: pd.DataFrame,
     name_col: str,
@@ -628,79 +781,6 @@ def process_friends_dataframe(
             "orig_row": row.to_dict()
         })
 
-def map_to_info_completeness(tier_or_status: str, company: str = "", job: str = "") -> str:
-    """
-    Maps lead tier or data quality to 'Độ đầy đủ thông tin' (Cao, Trung bình, Thấp, Thiếu thông tin)
-    for downstream data enrichment and pain point matching.
-    """
-    t = str(tier_or_status).strip()
-    if t in ["Cao", "Trung bình", "Thấp", "Thiếu thông tin"]:
-        return t
-    if "Tiềm năng cao" in t:
-        return "Cao"
-    if "Tiềm năng trung bình" in t:
-        return "Trung bình"
-    if "Tiềm năng thấp" in t:
-        return "Thấp"
-    if "Bỏ qua" in t or "Rác" in t or "Không có" in t:
-        return "Thiếu thông tin"
-    
-    # Heuristic based on presence of company & job
-    has_comp = bool(company and company not in ["Chưa cập nhật", "Ảo", "nan"])
-    has_job = bool(job and job not in ["Chưa cập nhật", "Worked", "University", "Ảo / Đùa cợt", "nan"])
-    if has_comp and has_job:
-        return "Cao"
-    elif has_comp or has_job:
-        return "Trung bình"
-    else:
-        return "Thấp"
-
-def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standardizes CRM dataframe according to user specification:
-    1. Renames 'Phân loại Lead' -> 'Độ đầy đủ thông tin' (mapped to Cao, Trung bình, Thấp, Thiếu thông tin).
-    2. Drops raw verbose columns: 'Mô tả gốc', 'Ghi chú AI', 'Tiêu đề LinkedIn', 'Tóm tắt LinkedIn'.
-    3. Reorders columns so link columns are consecutive at the end: Link Facebook -> Link LinkedIn -> Tìm trên Google.
-    """
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # 1. Rename Phân loại Lead -> Độ đầy đủ thông tin
-    if "Phân loại Lead" in out.columns and "Độ đầy đủ thông tin" not in out.columns:
-        out["Độ đầy đủ thông tin"] = out["Phân loại Lead"].map(lambda x: map_to_info_completeness(str(x)))
-        out.drop(columns=["Phân loại Lead"], inplace=True)
-    elif "Độ đầy đủ thông tin" in out.columns:
-        out["Độ đầy đủ thông tin"] = out["Độ đầy đủ thông tin"].map(lambda x: map_to_info_completeness(str(x)))
-
-    # 2. Drop unwanted verbose columns
-    cols_to_drop = ["Mô tả gốc", "Ghi chú AI", "Tiêu đề LinkedIn", "Tóm tắt LinkedIn"]
-    out.drop(columns=[c for c in cols_to_drop if c in out.columns], inplace=True)
-
-    # 3. Target column ordering
-    # Core Data -> Độ đầy đủ thông tin -> Độ khớp LinkedIn -> Link Facebook -> Link LinkedIn -> Tìm trên Google
-    desired_order = [
-        "STT",
-        "Họ và tên",
-        "Chức vụ",
-        "Tên công ty / Đơn vị",
-        "Tên công ty chuẩn hóa",
-        "Trường học / Học vấn",
-        "Cấp bậc",
-        "Lĩnh vực / Ngành nghề",
-        "Đánh giá",
-        "Độ đầy đủ thông tin",
-        "Độ khớp LinkedIn",
-        "Link Facebook",
-        "Link LinkedIn",
-        "Tìm trên Google"
-    ]
-
-    existing_desired = [c for c in desired_order if c in out.columns]
-    remaining_cols = [c for c in out.columns if c not in desired_order]
-    return out[existing_desired + remaining_cols]
-
     # Process batch by batch
     for start_idx in range(0, total_rows, batch_size):
         batch = prepared_items[start_idx : start_idx + batch_size]
@@ -714,6 +794,7 @@ def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                     "Chức vụ": cls_res["job_title"],
                     "Tên công ty / Đơn vị": cls_res["company"],
                     "Tên công ty chuẩn hóa": cls_res.get("company_normalized", "Chưa cập nhật"),
+                    "Loại hình đơn vị": classify_business_entity(cls_res.get("company_normalized", ""), cls_res["company"], cls_res["job_title"], cls_res["level"]),
                     "Trường học / Học vấn": cls_res.get("school", "Chưa cập nhật"),
                     "Cấp bậc": cls_res["level"],
                     "Lĩnh vực / Ngành nghề": cls_res["industry"],
@@ -766,6 +847,7 @@ def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                     "Chức vụ": res_data.get("job_title", "Chưa cập nhật"),
                     "Tên công ty / Đơn vị": res_data.get("company", "Chưa cập nhật"),
                     "Tên công ty chuẩn hóa": res_data.get("company_normalized", "Chưa cập nhật"),
+                    "Loại hình đơn vị": classify_business_entity(res_data.get("company_normalized", ""), res_data.get("company", ""), res_data.get("job_title", ""), res_data.get("level", "")),
                     "Trường học / Học vấn": res_data.get("school", "Chưa cập nhật"),
                     "Cấp bậc": res_data.get("level", "Không xác định"),
                     "Lĩnh vực / Ngành nghề": res_data.get("industry", "Không rõ"),
