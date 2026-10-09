@@ -1636,15 +1636,26 @@ Hệ thống được thiết kế theo đúng mô hình 4 bước tối ưu c�
 
 ---
 
-#### Bước 2: Cào dữ liệu bằng Instant Data Scraper (Miễn phí 100%)
-1. Cài đặt tiện ích **Instant Data Scraper** từ Chrome Web Store.
-2. Truy cập: `https://www.facebook.com/me/friends` trên profile clone.
-3. Bấm icon Instant Data Scraper trên thanh công cụ trình duyệt.
-4. **Cài đặt tốc độ (Delay):**
-   - **Min delay:** `2.5s`
-   - **Max delay:** `4.0s`
-   *(Mức delay này mô phỏng hành vi cuộn chuột tự nhiên của người thật, an toàn tuyệt đối).*
-5. Bấm **Start Crawling** -> Sau khi cuộn xong, bấm nút **XLSX** hoặc **CSV** để tải file về máy.
+#### Bước 2: Tự Động Cuộn & Cào Dữ Liệu Facebook (Không Cần Ngồi Lướt Thủ Công)
+Bạn có thể chọn 1 trong 3 cách cực kỳ tiện lợi dưới đây:
+
+* **🚀 Cách 1 (Khuyên dùng - 1 Click): Chạy Tool Tự Động Cuộn `Tu_Dong_Cuon_Facebook.bat`**
+  1. Click đúp vào file `Tu_Dong_Cuon_Facebook.bat` trong thư mục dự án.
+  2. Tool sẽ tự động mở Google Chrome, truy cập trang bạn bè Facebook của bạn.
+  3. Tool tự động cuộn xuống mô phỏng cử chỉ người thật (delay ngẫu nhiên 2s - 3.8s, chống checkpoint an toàn 100%).
+  4. Bạn có thể bấm `Ctrl + C` bất kỳ lúc nào để DỪNG và LƯU dữ liệu. File `danh_sach_ban_be_tu_dong.csv` sẽ tự động được tạo ra!
+
+* **⚡ Cách 2: Tiện Ích JavaScript Chạy Ngay Trên Trình Duyệt (`fb_auto_scroll.js`)**
+  1. Truy cập: `https://www.facebook.com/me/friends` trên Chrome / Edge / Cốc Cốc.
+  2. Bấm phím **F12** (hoặc chuột phải -> Kiểm tra) -> Chọn tab **Console**.
+  3. Mở file `fb_auto_scroll.js` trong thư mục dự án, copy toàn bộ nội dung dán vào Console rồi bấm **Enter**.
+  4. Bảng điều khiển nổi cực xịn sẽ hiện ngay góc phải màn hình: Bấm nút **[▶ Bắt Đầu Tự Động Cuộn]**.
+  5. Khi cuộn xong (hoặc chạm đáy), bấm nút **[📥 Xuất File Excel (CSV) Ngay]** để tải file về máy.
+
+* **🛠 Cách 3: Dùng Tiện Ích Instant Data Scraper (Nếu đã quen dùng)**
+  1. Cài đặt tiện ích **Instant Data Scraper** từ Chrome Web Store.
+  2. Truy cập: `https://www.facebook.com/me/friends`.
+  3. Bấm icon Instant Data Scraper -> Đặt **Min delay: 2.5s, Max delay: 4.0s** -> Bấm **Start Crawling** -> Tải file XLSX/CSV về.
 
 ---
 
