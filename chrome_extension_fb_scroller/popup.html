@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            width: 280px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: #0F172A;
+            color: #F8FAFC;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #334155;
+        }
+        .title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #38BDF8;
+        }
+        .desc {
+            font-size: 11.5px;
+            color: #94A3B8;
+            margin-bottom: 14px;
+            line-height: 1.4;
+        }
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 8px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 12.5px;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            box-sizing: border-box;
+            transition: 0.2s;
+        }
+        .btn-primary {
+            background: #2563EB;
+            color: #FFFFFF;
+        }
+        .btn-primary:hover {
+            background: #1D4ED8;
+        }
+        .btn-success {
+            background: #16A34A;
+            color: #FFFFFF;
+        }
+        .btn-success:hover {
+            background: #15803D;
+        }
+        .footer {
+            font-size: 10px;
+            color: #64748B;
+            text-align: center;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span style="font-size: 20px;">🚀</span>
+        <div class="title">FB Auto-Scroller</div>
+    </div>
+    <div class="desc">
+        Tự động cuộn trang bạn bè Facebook và tải danh sách Excel/CSV an toàn 100%.
+    </div>
+    
+    <button id="btn-show-widget" class="btn btn-primary">
+        ⚡ Bật Bảng Điều Khiển Trên Trang
+    </button>
+    
+    <a href="https://www.facebook.com/me/friends" target="_blank" class="btn btn-success">
+        🌐 Mở Trang Bạn Bè Facebook
+    </a>
+
+    <div class="footer">
+        Độ trễ người thật 2.0s - 3.8s • Chống checkpoint
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
