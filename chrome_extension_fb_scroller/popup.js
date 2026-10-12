@@ -12,3 +12,4 @@ document.getElementById('btn-show-widget').onclick = async function () {
         console.error(e);
     }
 };
+

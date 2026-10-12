@@ -336,3 +336,4 @@
 
     console.log("⚡ FB Auto-Scroller extension loaded!");
 })();
+

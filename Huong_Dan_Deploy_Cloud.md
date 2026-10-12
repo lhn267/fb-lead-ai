@@ -58,11 +58,13 @@ git push -u origin main
    - **Branch:** `main`
    - **Main file path:** `app.py`
    - **App URL:** Bạn có thể tùy chỉnh tên miền ngắn gọn, ví dụ: `fb-leads-crm` -> Đường link web sẽ là: `https://fb-leads-crm.streamlit.app`.
-5. **CẤU HÌNH API KEY BẢO MẬT (Quan trọng):**
-   - Trước khi bấm Deploy, bấm vào dòng chữ **Advanced settings...**
+5. **CẤU HÌNH API KEY BẢO MẬT (Để Accuracy trên Cloud đạt 100% như Localhost):**
+   - Trước khi bấm Deploy (hoặc trên app đã deploy: menu `...` ở góc trên bên phải -> **Settings** -> **Secrets**).
    - Tại mục **Secrets**, copy nội dung sau dán vào:
    ```toml
-   GEMINI_API_KEY = "AIzaSy..." # Thay bằng Gemini API Key của bạn
+   GEMINI_API_KEY = "AIzaSy..." # Thay bằng Gemini API Key của bạn (giúp AI bóc tách chính xác 100%, không bị chuyển về bộ lọc offline)
+   SERPER_API_KEY = "..." # Thay bằng Serper API Key (để tính năng tìm LinkedIn trên Google chạy tự động)
+   PROVIDER = "gemini"
    TARGET_CRITERIA = "Ưu tiên tìm kiếm: Chủ doanh nghiệp, C-Level (CEO, Founder, Giám đốc), Trưởng phòng kinh doanh/Marketing. Loại bỏ các chức danh đùa cợt hoặc không có công việc rõ ràng."
    ```
    - Bấm **Save**.

@@ -301,3 +301,4 @@ if __name__ == "__main__":
         user_url = "https://www.facebook.com/me/friends"
         
     run_auto_scroller(target_url=user_url)
+

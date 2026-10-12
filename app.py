@@ -206,24 +206,48 @@ def load_saved_config():
     # 1. Cloud Secrets (Streamlit Cloud / Hugging Face Spaces)
     try:
         if hasattr(st, "secrets"):
-            if "GEMINI_API_KEY" in st.secrets:
-                cfg["gemini_key"] = st.secrets["GEMINI_API_KEY"]
-            if "OPENAI_API_KEY" in st.secrets:
-                cfg["openai_key"] = st.secrets["OPENAI_API_KEY"]
-            if "TARGET_CRITERIA" in st.secrets:
-                cfg["target_criteria"] = st.secrets["TARGET_CRITERIA"]
-            if "FB_COOKIE" in st.secrets:
-                cfg["fb_cookie"] = st.secrets["FB_COOKIE"]
+            for sec_k, sec_v in st.secrets.items():
+                if isinstance(sec_v, str):
+                    k = sec_k.lower().strip()
+                    val = sec_v.strip()
+                    if k in ["gemini_api_key", "gemini_key", "gemini"]:
+                        cfg["gemini_key"] = val
+                    elif k in ["openai_api_key", "openai_key", "openai"]:
+                        cfg["openai_key"] = val
+                    elif k in ["serper_api_key", "serper_key", "serper"]:
+                        cfg["serper_key"] = val
+                    elif k in ["provider", "ai_provider"]:
+                        cfg["provider"] = val.lower()
+                    elif k in ["target_criteria", "icp"]:
+                        cfg["target_criteria"] = val
+                    elif k in ["fb_cookie"]:
+                        cfg["fb_cookie"] = val
+                    elif k in ["batch_size"]:
+                        try:
+                            cfg["batch_size"] = int(val)
+                        except Exception:
+                            pass
     except Exception:
         pass
 
     # 2. Environment Variables
-    if os.getenv("GEMINI_API_KEY") and not cfg.get("gemini_key"):
-        cfg["gemini_key"] = os.getenv("GEMINI_API_KEY")
-    if os.getenv("OPENAI_API_KEY") and not cfg.get("openai_key"):
-        cfg["openai_key"] = os.getenv("OPENAI_API_KEY")
+    env_gemini = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_KEY")
+    if env_gemini and not cfg.get("gemini_key"):
+        cfg["gemini_key"] = env_gemini.strip()
+
+    env_serper = os.getenv("SERPER_API_KEY") or os.getenv("SERPER_KEY")
+    if env_serper and not cfg.get("serper_key"):
+        cfg["serper_key"] = env_serper.strip()
+
+    env_openai = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_KEY")
+    if env_openai and not cfg.get("openai_key"):
+        cfg["openai_key"] = env_openai.strip()
+
+    if os.getenv("TARGET_CRITERIA") and not cfg.get("target_criteria"):
+        cfg["target_criteria"] = os.getenv("TARGET_CRITERIA").strip()
+
     if os.getenv("FB_COOKIE") and not cfg.get("fb_cookie"):
-        cfg["fb_cookie"] = os.getenv("FB_COOKIE")
+        cfg["fb_cookie"] = os.getenv("FB_COOKIE").strip()
 
     # 3. Local disk config.json (persists locally)
     if os.path.exists(CONFIG_FILE):
@@ -233,6 +257,11 @@ def load_saved_config():
                 cfg.update({k: v for k, v in disk_cfg.items() if v})
         except Exception:
             pass
+
+    # Ensure provider defaults to gemini if gemini_key is available
+    if "provider" not in cfg:
+        cfg["provider"] = "gemini" if cfg.get("gemini_key") else ("openai" if cfg.get("openai_key") else "offline")
+
     return cfg
 
 def save_user_config(config_dict):

@@ -21,3 +21,4 @@ python fb_auto_scroller.py
 
 echo.
 pause
+

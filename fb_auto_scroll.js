@@ -310,3 +310,4 @@
     scanFriends();
     console.log("✅ FB Auto-Scroller & Scraper đã được kích hoạt thành công!");
 })();
+
