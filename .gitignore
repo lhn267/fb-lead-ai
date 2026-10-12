@@ -8,6 +8,7 @@ config.json
 .env
 .streamlit/secrets.toml
 fb_chrome_session/
+.temp_sessions/
 
 # Scraped / temporary customer lead files
 *.xlsx

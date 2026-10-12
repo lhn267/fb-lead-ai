@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import uuid
+import shutil
 import pandas as pd
 import streamlit as st
 import importlib
@@ -200,8 +202,51 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 CONFIG_FILE = "config.json"
+SESSIONS_DIR = ".temp_sessions"
+DEMO_CRM_FILE = "crm_leads_autosave.csv"
+DEMO_DEEP_FILE = "deep_crawl_autosave.csv"
+
+def get_session_id() -> str:
+    """Returns a unique session ID for the current user's browser session."""
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())[:8]
+    return st.session_state.session_id
+
+def get_session_dir() -> str:
+    """Returns isolated temporary storage folder for current session."""
+    s_id = get_session_id()
+    path = os.path.join(SESSIONS_DIR, s_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def get_crm_autosave_path() -> str:
+    return os.path.join(get_session_dir(), "crm_leads_autosave.csv")
+
+def get_deep_autosave_path() -> str:
+    return os.path.join(get_session_dir(), "deep_crawl_autosave.csv")
+
+def cleanup_old_sessions(max_age_hours: int = 12):
+    """Cleans up inactive ephemeral session workspaces older than max_age_hours."""
+    try:
+        if not os.path.exists(SESSIONS_DIR):
+            return
+        now = time.time()
+        for folder_name in os.listdir(SESSIONS_DIR):
+            folder_path = os.path.join(SESSIONS_DIR, folder_name)
+            if os.path.isdir(folder_path):
+                if now - os.path.getmtime(folder_path) > max_age_hours * 3600:
+                    shutil.rmtree(folder_path, ignore_errors=True)
+    except Exception:
+        pass
+
+# Periodically prune stale session folders
+cleanup_old_sessions()
 
 def load_saved_config():
+    # If the user has changed config in their current isolated session, preserve it
+    if "saved_config" in st.session_state:
+        return dict(st.session_state["saved_config"])
+
     cfg = {}
     # 1. Cloud Secrets (Streamlit Cloud / Hugging Face Spaces)
     try:
@@ -249,7 +294,7 @@ def load_saved_config():
     if os.getenv("FB_COOKIE") and not cfg.get("fb_cookie"):
         cfg["fb_cookie"] = os.getenv("FB_COOKIE").strip()
 
-    # 3. Local disk config.json (persists locally)
+    # 3. Local disk config.json (persists locally for single-user dev)
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -266,22 +311,46 @@ def load_saved_config():
 
 def save_user_config(config_dict):
     st.session_state["saved_config"] = config_dict
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config_dict, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # In cloud environments with read-only filesystems, session_state safely keeps the config
-        pass
-
-AUTO_SAVE_CRM_FILE = "crm_leads_autosave.csv"
-AUTO_SAVE_DEEP_FILE = "deep_crawl_autosave.csv"
+    # Only write to shared config.json if running in local standalone mode.
+    # In cloud environments, keep config strictly inside st.session_state to prevent multi-tenant key leakage.
+    is_cloud = bool(
+        os.getenv("STREAMLIT_SHARING_MODE")
+        or os.getenv("STREAMLIT_SERVER_BASE_URL_PATH")
+        or os.getenv("IS_STREAMLIT_CLOUD")
+        or os.path.exists("/app")
+    )
+    if not is_cloud:
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config_dict, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
 def load_autosaved_data():
+    # If the user previously clicked "Xóa bộ nhớ" in this session, don't reload demo leads
+    if st.session_state.get("data_cleared", False):
+        return None, None
+
     crm_df = None
     deep_df = None
-    if os.path.exists(AUTO_SAVE_CRM_FILE):
+
+    s_crm = get_crm_autosave_path()
+    s_deep = get_deep_autosave_path()
+
+    # 1. First priority: Check this session's private autosaved file
+    if os.path.exists(s_crm):
         try:
-            crm_df = pd.read_csv(AUTO_SAVE_CRM_FILE, encoding="utf-8-sig")
+            crm_df = pd.read_csv(s_crm, encoding="utf-8-sig")
+            if not crm_df.empty:
+                crm_df = clean_and_reorder_crm_dataframe(crm_df)
+            else:
+                crm_df = None
+        except Exception:
+            crm_df = None
+    # 2. Fallback: Load demo dataset (READ-ONLY) so new users can preview 3,122 leads immediately
+    elif os.path.exists(DEMO_CRM_FILE):
+        try:
+            crm_df = pd.read_csv(DEMO_CRM_FILE, encoding="utf-8-sig")
             if not crm_df.empty:
                 crm_df = clean_and_reorder_crm_dataframe(crm_df)
             else:
@@ -289,9 +358,16 @@ def load_autosaved_data():
         except Exception:
             crm_df = None
 
-    if os.path.exists(AUTO_SAVE_DEEP_FILE):
+    if os.path.exists(s_deep):
         try:
-            deep_df = pd.read_csv(AUTO_SAVE_DEEP_FILE, encoding="utf-8-sig")
+            deep_df = pd.read_csv(s_deep, encoding="utf-8-sig")
+            if deep_df.empty:
+                deep_df = None
+        except Exception:
+            deep_df = None
+    elif os.path.exists(DEMO_DEEP_FILE):
+        try:
+            deep_df = pd.read_csv(DEMO_DEEP_FILE, encoding="utf-8-sig")
             if deep_df.empty:
                 deep_df = None
         except Exception:
@@ -300,27 +376,36 @@ def load_autosaved_data():
     return crm_df, deep_df
 
 def save_crm_autosave(df: pd.DataFrame):
+    """Saves dataframe strictly to the current user's session folder. Never overwrites the demo dataset."""
     if df is not None and not df.empty:
         try:
             cleaned = clean_and_reorder_crm_dataframe(df)
-            cleaned.to_csv(AUTO_SAVE_CRM_FILE, index=False, encoding="utf-8-sig")
+            cleaned.to_csv(get_crm_autosave_path(), index=False, encoding="utf-8-sig")
         except Exception:
             pass
 
 def save_deep_autosave(df: pd.DataFrame):
+    """Saves deep crawl results strictly to the current user's session folder."""
     if df is not None and not df.empty:
         try:
-            df.to_csv(AUTO_SAVE_DEEP_FILE, index=False, encoding="utf-8-sig")
+            df.to_csv(get_deep_autosave_path(), index=False, encoding="utf-8-sig")
         except Exception:
             pass
 
 def clear_autosaved_data():
-    for f in [AUTO_SAVE_CRM_FILE, AUTO_SAVE_DEEP_FILE]:
-        if os.path.exists(f):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
+    """Clears ONLY the current user's session autosave. Never affects demo dataset or other users."""
+    st.session_state["data_cleared"] = True
+    try:
+        s_crm = get_crm_autosave_path()
+        s_deep = get_deep_autosave_path()
+        for f in [s_crm, s_deep]:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 def style_dataframe_with_linkedin(df: pd.DataFrame):
     """
@@ -463,7 +548,7 @@ with st.sidebar:
     if current_leads_count > 0:
         st.markdown(f"""
         <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:6px; padding:6px 10px; font-size:0.83rem; color:#166534; margin-bottom:8px;">
-            Đã lưu an toàn <b>{current_leads_count} khách hàng</b> trên ổ cứng (tắt máy mở lại vẫn còn nguyên).
+            Đã lưu an toàn <b>{current_leads_count} khách hàng</b> (Phiên làm việc riêng <code>{get_session_id()}</code>).
         </div>
         """, unsafe_allow_html=True)
         if st.button("Xóa bộ nhớ để làm tệp mới", type="secondary", use_container_width=True):
@@ -517,6 +602,7 @@ with tab_upload:
 
     if uploaded_files:
         try:
+            st.session_state["data_cleared"] = False
             dfs = [clean_file_data(f) for f in uploaded_files]
             deduped_df, total_before, dupes_removed = merge_and_deduplicate_dfs(dfs)
             st.session_state.raw_df = deduped_df

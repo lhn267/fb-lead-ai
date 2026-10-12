@@ -5,6 +5,8 @@ import time
 import requests
 import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -732,6 +734,92 @@ def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     remaining_cols = [c for c in out.columns if c not in desired_order]
     return out[existing_desired + remaining_cols]
 
+def _process_single_batch(
+    batch: List[Dict[str, Any]],
+    api_key: Optional[str],
+    api_provider: str,
+    model_name: str,
+    target_criteria: str
+) -> List[Dict[str, Any]]:
+    """Helper to process a single batch of friends data, with AI or offline fallback."""
+    batch_results = []
+    if not api_key:
+        for item in batch:
+            cls_res = offline_heuristic_classify(item["name"], item["text"])
+            batch_results.append({
+                "Họ và tên": item["name"],
+                "Chức vụ": cls_res["job_title"],
+                "Tên công ty / Đơn vị": cls_res["company"],
+                "Tên công ty chuẩn hóa": cls_res.get("company_normalized", "Chưa cập nhật"),
+                "Loại hình đơn vị": classify_business_entity(cls_res.get("company_normalized", ""), cls_res["company"], cls_res["job_title"], cls_res["level"]),
+                "Trường học / Học vấn": cls_res.get("school", "Chưa cập nhật"),
+                "Cấp bậc": cls_res["level"],
+                "Lĩnh vực / Ngành nghề": cls_res["industry"],
+                "Đánh giá": cls_res["status"],
+                "Độ đầy đủ thông tin": map_to_info_completeness(cls_res["lead_tier"], cls_res["company"], cls_res["job_title"]),
+                "Link Facebook": item["link"]
+            })
+        return batch_results
+
+    # Need to call AI API
+    # First check for quick pre-filters (jokes, mutual friends only, blank) to save tokens & time
+    ai_batch = []
+    id_to_prefilter = {}
+    for item in batch:
+        pre = rule_based_pre_classify(item["text"])
+        if pre and pre["status"] in ["Rác / Đùa cợt", "Không có thông tin việc làm", "Không có thông tin"]:
+            id_to_prefilter[item["id"]] = pre
+        else:
+            ai_batch.append(item)
+
+    ai_results_map = {}
+    if ai_batch:
+        prompt = build_gemini_prompt(ai_batch, target_criteria)
+        try:
+            if api_provider == "gemini":
+                ai_resp = call_gemini_api(prompt, api_key, model=model_name)
+            else:
+                ai_resp = call_openai_api(prompt, api_key, model=model_name)
+
+            for r in ai_resp:
+                if isinstance(r, dict) and "id" in r:
+                    ai_results_map[int(r["id"])] = r
+        except Exception as e:
+            # If AI fails, fallback to offline rules for this batch so processing continues
+            print(f"Warning: AI batch error ({e}), falling back to offline rules...")
+            for item in ai_batch:
+                ai_results_map[item["id"]] = offline_heuristic_classify(item["name"], item["text"])
+
+    # Merge results for this batch
+    for item in batch:
+        item_id = item["id"]
+        if item_id in id_to_prefilter:
+            res_data = id_to_prefilter[item_id]
+        elif item_id in ai_results_map:
+            res_data = ai_results_map[item_id]
+        else:
+            res_data = offline_heuristic_classify(item["name"], item["text"])
+
+        batch_results.append({
+            "Họ và tên": item["name"],
+            "Chức vụ": res_data.get("job_title", "Chưa cập nhật"),
+            "Tên công ty / Đơn vị": res_data.get("company", "Chưa cập nhật"),
+            "Tên công ty chuẩn hóa": res_data.get("company_normalized", "Chưa cập nhật"),
+            "Loại hình đơn vị": classify_business_entity(res_data.get("company_normalized", ""), res_data.get("company", ""), res_data.get("job_title", ""), res_data.get("level", "")),
+            "Trường học / Học vấn": res_data.get("school", "Chưa cập nhật"),
+            "Cấp bậc": res_data.get("level", "Không xác định"),
+            "Lĩnh vực / Ngành nghề": res_data.get("industry", "Không rõ"),
+            "Đánh giá": res_data.get("status", "Hợp lệ"),
+            "Độ đầy đủ thông tin": map_to_info_completeness(res_data.get("lead_tier", "Tiềm năng trung bình"), res_data.get("company", ""), res_data.get("job_title", "")),
+            "Link Facebook": item["link"]
+        })
+
+    # Small polite pause when AI was called to respect quota
+    if ai_batch:
+        time.sleep(0.5)
+
+    return batch_results
+
 def process_friends_dataframe(
     df: pd.DataFrame,
     name_col: str,
@@ -742,13 +830,16 @@ def process_friends_dataframe(
     model_name: str = "gemini-2.5-flash",
     target_criteria: str = "",
     batch_size: int = 25,
+    max_workers: int = 3,
     progress_callback=None
 ) -> pd.DataFrame:
     """
     Main pipeline to process rows in batches, applying AI classification with fallback.
+    Executes batches asynchronously and concurrently via ThreadPoolExecutor for fast multi-user performance.
     """
     total_rows = len(df)
-    results = []
+    if total_rows == 0:
+        return pd.DataFrame()
 
     # Handle single or multiple info cols
     if isinstance(info_cols, str):
@@ -781,91 +872,41 @@ def process_friends_dataframe(
             "orig_row": row.to_dict()
         })
 
-    # Process batch by batch
-    for start_idx in range(0, total_rows, batch_size):
-        batch = prepared_items[start_idx : start_idx + batch_size]
-        
-        # If API key is not provided, use offline rule classifier
-        if not api_key:
-            for item in batch:
-                cls_res = offline_heuristic_classify(item["name"], item["text"])
-                results.append({
-                    "Họ và tên": item["name"],
-                    "Chức vụ": cls_res["job_title"],
-                    "Tên công ty / Đơn vị": cls_res["company"],
-                    "Tên công ty chuẩn hóa": cls_res.get("company_normalized", "Chưa cập nhật"),
-                    "Loại hình đơn vị": classify_business_entity(cls_res.get("company_normalized", ""), cls_res["company"], cls_res["job_title"], cls_res["level"]),
-                    "Trường học / Học vấn": cls_res.get("school", "Chưa cập nhật"),
-                    "Cấp bậc": cls_res["level"],
-                    "Lĩnh vực / Ngành nghề": cls_res["industry"],
-                    "Đánh giá": cls_res["status"],
-                    "Độ đầy đủ thông tin": map_to_info_completeness(cls_res["lead_tier"], cls_res["company"], cls_res["job_title"]),
-                    "Link Facebook": item["link"]
-                })
-        else:
-            # Need to call AI API
-            # First check for quick pre-filters (jokes, mutual friends only, blank) to save tokens & time
-            ai_batch = []
-            id_to_prefilter = {}
-            for item in batch:
-                pre = rule_based_pre_classify(item["text"])
-                if pre and pre["status"] in ["Rác / Đùa cợt", "Không có thông tin việc làm", "Không có thông tin"]:
-                    id_to_prefilter[item["id"]] = pre
-                else:
-                    ai_batch.append(item)
+    # Divide into indexed batches
+    batches = [
+        (b_idx, prepared_items[i : i + batch_size])
+        for b_idx, i in enumerate(range(0, total_rows, batch_size))
+    ]
 
-            ai_results_map = {}
-            if ai_batch:
-                prompt = build_gemini_prompt(ai_batch, target_criteria)
-                try:
-                    if api_provider == "gemini":
-                        ai_resp = call_gemini_api(prompt, api_key, model=model_name)
-                    else:
-                        ai_resp = call_openai_api(prompt, api_key, model=model_name)
+    results = [None] * total_rows
+    done_count = 0
+    progress_lock = threading.Lock()
 
-                    for r in ai_resp:
-                        if isinstance(r, dict) and "id" in r:
-                            ai_results_map[int(r["id"])] = r
-                except Exception as e:
-                    # If AI fails, fallback to offline rules for this batch so processing continues
-                    print(f"Warning: AI batch error ({e}), falling back to offline rules for batch {start_idx}...")
-                    for item in ai_batch:
-                        ai_results_map[item["id"]] = offline_heuristic_classify(item["name"], item["text"])
+    def _worker(b_idx, b_items):
+        nonlocal done_count
+        b_res = _process_single_batch(b_items, api_key, api_provider, model_name, target_criteria)
+        start_offset = b_idx * batch_size
+        for offset, res_item in enumerate(b_res):
+            if start_offset + offset < total_rows:
+                results[start_offset + offset] = res_item
 
-            # Merge results for this batch
-            for item in batch:
-                item_id = item["id"]
-                if item_id in id_to_prefilter:
-                    res_data = id_to_prefilter[item_id]
-                elif item_id in ai_results_map:
-                    res_data = ai_results_map[item_id]
-                else:
-                    res_data = offline_heuristic_classify(item["name"], item["text"])
+        with progress_lock:
+            done_count += len(b_items)
+            if progress_callback:
+                progress_callback(min(done_count, total_rows), total_rows)
 
-                results.append({
-                    "Họ và tên": item["name"],
-                    "Chức vụ": res_data.get("job_title", "Chưa cập nhật"),
-                    "Tên công ty / Đơn vị": res_data.get("company", "Chưa cập nhật"),
-                    "Tên công ty chuẩn hóa": res_data.get("company_normalized", "Chưa cập nhật"),
-                    "Loại hình đơn vị": classify_business_entity(res_data.get("company_normalized", ""), res_data.get("company", ""), res_data.get("job_title", ""), res_data.get("level", "")),
-                    "Trường học / Học vấn": res_data.get("school", "Chưa cập nhật"),
-                    "Cấp bậc": res_data.get("level", "Không xác định"),
-                    "Lĩnh vực / Ngành nghề": res_data.get("industry", "Không rõ"),
-                    "Đánh giá": res_data.get("status", "Hợp lệ"),
-                    "Độ đầy đủ thông tin": map_to_info_completeness(res_data.get("lead_tier", "Tiềm năng trung bình"), res_data.get("company", ""), res_data.get("job_title", "")),
-                    "Link Facebook": item["link"]
-                })
+    workers = min(max_workers, len(batches)) if api_key else min(8, len(batches))
+    if workers <= 1:
+        for b_idx, b_items in batches:
+            _worker(b_idx, b_items)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_worker, b_idx, b_items) for b_idx, b_items in batches]
+            for f in as_completed(futures):
+                f.result()
 
-            # Small polite pause to respect rate limits only when AI was actually called
-            if ai_batch:
-                time.sleep(1.0)
-
-        # Notify progress callback
-        if progress_callback:
-            current_done = min(start_idx + batch_size, total_rows)
-            progress_callback(current_done, total_rows)
-
-    return clean_and_reorder_crm_dataframe(pd.DataFrame(results))
+    valid_results = [r for r in results if r is not None]
+    return clean_and_reorder_crm_dataframe(pd.DataFrame(valid_results))
 
 def export_styled_excel(df: pd.DataFrame, output_path: Any = None) -> Any:
     """
