@@ -98,6 +98,13 @@ def normalize_fb_link(url: str) -> str:
     if not url or not isinstance(url, str):
         return ""
     url = url.strip()
+    
+    # 1. Handle Facebook Group member link: /groups/<group_id>/user/<user_id>/
+    m_grp = re.search(r"/groups/\d+/user/(\d+)", url)
+    if m_grp:
+        return f"https://www.facebook.com/profile.php?id={m_grp.group(1)}"
+
+    # 2. Handle profile.php with id=...
     if "profile.php" in url and "id=" in url:
         match = re.search(r"profile\.php\?id=(\d+)", url)
         if match:
@@ -427,6 +434,10 @@ def offline_heuristic_classify(name: str, text: str) -> Dict[str, Any]:
     cleaned = re.sub(r"(?i)\bno schools/universities to show\b", "", cleaned)
     cleaned = re.sub(r"(?i)\b\d+\s+bạn chung\b", "", cleaned)
     cleaned = re.sub(r"(?i)\b\d+\s+mutual friends\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\bđã tham gia\b.*?(?:trước|vào\s+thứ\s+\w+|\d+)?", "", cleaned)
+    cleaned = re.sub(r"(?i)\bjoined\b.*?(?:ago|\d+)?", "", cleaned)
+    cleaned = re.sub(r"(?i)\b(thêm bạn bè|nhắn tin|theo dõi|hủy kết bạn|bạn bè)\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\b\d+[\.,]?\d*\s+người theo dõi trang cá nhân này\b", "", cleaned)
     cleaned = cleaned.strip(" ·|\n\r\t,")
 
     if not cleaned or len(cleaned) < 3:
@@ -853,15 +864,21 @@ def process_friends_dataframe(
     prepared_items = []
     for idx, row in df.iterrows():
         name_val = str(row.get(name_col, "")).strip() if pd.notna(row.get(name_col)) else ""
-        link_val = str(row.get(link_col, "")).strip() if pd.notna(row.get(link_col)) else ""
+        link_val = normalize_fb_link(str(row.get(link_col, "")).strip()) if pd.notna(row.get(link_col)) else ""
         
         # Combine all info columns together!
         info_parts = []
         for ic in info_col_list:
             if ic in df.columns and pd.notna(row.get(ic)):
                 v = str(row.get(ic, "")).strip()
-                if v and v.lower() != "nan" and not v.startswith("http"):
-                    info_parts.append(v)
+                if not v or v.lower() == "nan" or v.startswith("http") or v in ["·", "-", "•"]:
+                    continue
+                v_low = v.lower()
+                if any(v_low == btn for btn in ["thêm bạn bè", "theo dõi", "nhắn tin", "hủy kết bạn", "bạn bè"]):
+                    continue
+                if v_low.startswith("đã tham gia") or v_low.startswith("joined"):
+                    continue
+                info_parts.append(v)
         full_info = " · ".join(info_parts)
         
         prepared_items.append({

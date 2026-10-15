@@ -68,10 +68,17 @@ def cleanup_chrome_lock():
                 pass
 
 def get_clean_profile_url(profile_url: str) -> str:
-    """Converts mutual friends, subtabs, or query URLs into a clean base profile URL."""
+    """Converts mutual friends, subtabs, group member links, or query URLs into a clean base profile URL."""
     if not profile_url or not isinstance(profile_url, str):
         return ""
     clean = profile_url.strip()
+    
+    # 1. Handle Facebook Group member link: /groups/<group_id>/user/<user_id>/
+    m_grp = re.search(r"/groups/\d+/user/(\d+)", clean)
+    if m_grp:
+        return f"https://www.facebook.com/profile.php?id={m_grp.group(1)}"
+
+    # 2. Handle profile.php
     if "profile.php" in clean:
         m = re.search(r"id=(\d+)", clean)
         if m:
