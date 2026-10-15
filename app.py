@@ -722,9 +722,12 @@ with tab_upload:
             status_text = st.empty()
 
             def update_progress(done, total):
-                pct = int((done / total) * 100)
-                progress_bar.progress(pct)
-                status_text.text(f"Đang xử lý: {done}/{total} người bạn ({pct}%)...")
+                pct = int((done / total) * 100) if total > 0 else 0
+                try:
+                    progress_bar.progress(pct)
+                    status_text.text(f"Đang xử lý: {done}/{total} người bạn ({pct}%)...")
+                except Exception:
+                    pass
 
             try:
                 start_time = time.time()
@@ -969,8 +972,11 @@ with tab_deep_crawl:
 
                 def update_deep_ai_p(done, total):
                     pct = int((done / total) * 100) if total > 0 else 0
-                    ai_p_bar.progress(pct)
-                    ai_status.text(f"AI đang bóc tách: {done}/{total} người ({pct}%)...")
+                    try:
+                        ai_p_bar.progress(pct)
+                        ai_status.text(f"AI đang bóc tách: {done}/{total} người ({pct}%)...")
+                    except Exception:
+                        pass
 
                 eff_provider = provider_code if api_key else "offline"
                 eff_key = api_key if api_key else None

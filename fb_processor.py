@@ -897,30 +897,49 @@ def process_friends_dataframe(
 
     results = [None] * total_rows
     done_count = 0
-    progress_lock = threading.Lock()
 
     def _worker(b_idx, b_items):
-        nonlocal done_count
         b_res = _process_single_batch(b_items, api_key, api_provider, model_name, target_criteria)
-        start_offset = b_idx * batch_size
-        for offset, res_item in enumerate(b_res):
-            if start_offset + offset < total_rows:
-                results[start_offset + offset] = res_item
-
-        with progress_lock:
-            done_count += len(b_items)
-            if progress_callback:
-                progress_callback(min(done_count, total_rows), total_rows)
+        return (b_idx, b_items, b_res)
 
     workers = min(max_workers, len(batches)) if api_key else min(8, len(batches))
     if workers <= 1:
         for b_idx, b_items in batches:
-            _worker(b_idx, b_items)
+            _, _, b_res = _worker(b_idx, b_items)
+            start_offset = b_idx * batch_size
+            for offset, res_item in enumerate(b_res):
+                if start_offset + offset < total_rows:
+                    results[start_offset + offset] = res_item
+            done_count += len(b_items)
+            if progress_callback:
+                try:
+                    progress_callback(min(done_count, total_rows), total_rows)
+                except Exception:
+                    pass
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(_worker, b_idx, b_items) for b_idx, b_items in batches]
-            for f in as_completed(futures):
-                f.result()
+            future_to_batch = {
+                executor.submit(_worker, b_idx, b_items): (b_idx, b_items)
+                for b_idx, b_items in batches
+            }
+            for f in as_completed(future_to_batch):
+                b_idx, b_items = future_to_batch[f]
+                try:
+                    _, _, b_res = f.result()
+                    start_offset = b_idx * batch_size
+                    for offset, res_item in enumerate(b_res):
+                        if start_offset + offset < total_rows:
+                            results[start_offset + offset] = res_item
+                except Exception as ex:
+                    print(f"Error processing batch {b_idx}: {ex}")
+
+                done_count += len(b_items)
+                # progress_callback is called strictly on the main thread so Streamlit's SessionContext is always present
+                if progress_callback:
+                    try:
+                        progress_callback(min(done_count, total_rows), total_rows)
+                    except Exception:
+                        pass
 
     valid_results = [r for r in results if r is not None]
     return clean_and_reorder_crm_dataframe(pd.DataFrame(valid_results))
