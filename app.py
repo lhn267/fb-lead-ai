@@ -327,30 +327,17 @@ def save_user_config(config_dict):
             pass
 
 def load_autosaved_data():
-    # If the user previously clicked "Xóa bộ nhớ" in this session, don't reload demo leads
-    if st.session_state.get("data_cleared", False):
-        return None, None
-
     crm_df = None
     deep_df = None
 
     s_crm = get_crm_autosave_path()
     s_deep = get_deep_autosave_path()
 
-    # 1. First priority: Check this session's private autosaved file
+    # ONLY check this session's private autosaved file!
+    # Never automatically load shared demo leads for new visitors, ensuring 100% privacy!
     if os.path.exists(s_crm):
         try:
             crm_df = pd.read_csv(s_crm, encoding="utf-8-sig")
-            if not crm_df.empty:
-                crm_df = clean_and_reorder_crm_dataframe(crm_df)
-            else:
-                crm_df = None
-        except Exception:
-            crm_df = None
-    # 2. Fallback: Load demo dataset (READ-ONLY) so new users can preview 3,122 leads immediately
-    elif os.path.exists(DEMO_CRM_FILE):
-        try:
-            crm_df = pd.read_csv(DEMO_CRM_FILE, encoding="utf-8-sig")
             if not crm_df.empty:
                 crm_df = clean_and_reorder_crm_dataframe(crm_df)
             else:
@@ -361,13 +348,6 @@ def load_autosaved_data():
     if os.path.exists(s_deep):
         try:
             deep_df = pd.read_csv(s_deep, encoding="utf-8-sig")
-            if deep_df.empty:
-                deep_df = None
-        except Exception:
-            deep_df = None
-    elif os.path.exists(DEMO_DEEP_FILE):
-        try:
-            deep_df = pd.read_csv(DEMO_DEEP_FILE, encoding="utf-8-sig")
             if deep_df.empty:
                 deep_df = None
         except Exception:
@@ -554,7 +534,12 @@ with st.sidebar:
         if st.button("Xóa bộ nhớ để làm tệp mới", type="secondary", use_container_width=True):
             clear_autosaved_data()
             st.session_state.processed_df = None
+            st.session_state.raw_df = None
             st.session_state.deep_enriched_df = None
+            st.session_state.selected_file_name = ""
+            st.session_state.total_files_count = 0
+            st.session_state.total_before_dedup = 0
+            st.session_state.dupes_removed_count = 0
             st.rerun()
     else:
         st.caption("Dữ liệu bóc tách được sẽ tự động lưu vĩnh viễn trên ổ cứng máy tính.")
@@ -1032,9 +1017,18 @@ with tab_results:
         st.markdown(f"""
         <div class="alert-info">
             <span class="icon-pill icon-pill-blue">{get_svg_icon('table', 18, '#2563EB')}</span>
-            <span>Chưa có dữ liệu xử lý. Vui lòng tải file và bấm nút 'Bắt đầu xử lý' ở Tab 1 trước.</span>
+            <span>Chưa có dữ liệu xử lý trong phiên của bạn. Vui lòng tải file lên và bấm nút 'Bắt đầu xử lý' ở Tab 1 trước.</span>
         </div>
         """, unsafe_allow_html=True)
+        if os.path.exists(DEMO_CRM_FILE):
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🧪 Nạp xem thử dữ liệu mẫu demo (3.122 khách hàng)", type="secondary"):
+                try:
+                    demo_df = pd.read_csv(DEMO_CRM_FILE, encoding="utf-8-sig")
+                    st.session_state.processed_df = clean_and_reorder_crm_dataframe(demo_df)
+                    st.rerun()
+                except Exception:
+                    pass
     else:
         res_df = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
         tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in res_df.columns else "Phân loại Lead"
