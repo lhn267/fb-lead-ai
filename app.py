@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import uuid
@@ -225,7 +226,7 @@ def get_crm_autosave_path() -> str:
 def get_deep_autosave_path() -> str:
     return os.path.join(get_session_dir(), "deep_crawl_autosave.csv")
 
-def cleanup_old_sessions(max_age_hours: int = 12):
+def cleanup_old_sessions(max_age_hours: int = 72):
     """Cleans up inactive ephemeral session workspaces older than max_age_hours."""
     try:
         if not os.path.exists(SESSIONS_DIR):
@@ -524,11 +525,12 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
+    current_sid = get_session_id()
     current_leads_count = len(st.session_state.processed_df) if st.session_state.processed_df is not None else 0
     if current_leads_count > 0:
         st.markdown(f"""
         <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:6px; padding:6px 10px; font-size:0.83rem; color:#166534; margin-bottom:8px;">
-            Đã lưu an toàn <b>{current_leads_count} khách hàng</b> (Phiên làm việc riêng <code>{get_session_id()}</code>).
+            Đã lưu an toàn <b>{current_leads_count} khách hàng</b> (Mã phiên: <code>{current_sid}</code>).
         </div>
         """, unsafe_allow_html=True)
         if st.button("Xóa bộ nhớ để làm tệp mới", type="secondary", use_container_width=True):
@@ -542,7 +544,19 @@ with st.sidebar:
             st.session_state.dupes_removed_count = 0
             st.rerun()
     else:
-        st.caption("Dữ liệu bóc tách được sẽ tự động lưu vĩnh viễn trên ổ cứng máy tính.")
+        st.caption("Dữ liệu bóc tách được sẽ tự động lưu liên tục trong phiên làm việc của bạn.")
+
+    with st.expander("🔑 Khôi phục tiến độ khi tắt máy", expanded=False):
+        st.caption("Mỗi phiên có một mã riêng để bảo mật. Bạn có thể tự đặt tên mã (ví dụ: `duan_1`) hoặc lưu mã này lại để lần sau vào khôi phục đúng tiến độ đang làm dở:")
+        custom_sid_input = st.text_input("Mã phiên lưu trữ của bạn:", value=current_sid, key="workspace_id_input")
+        if st.button("Mở / Khôi phục theo mã này", use_container_width=True):
+            clean_sid = re.sub(r"[^a-zA-Z0-9_-]", "", custom_sid_input.strip())
+            if clean_sid and clean_sid != current_sid:
+                st.session_state.session_id = clean_sid
+                c_df, d_df = load_autosaved_data()
+                st.session_state.processed_df = c_df
+                st.session_state.deep_enriched_df = d_df
+                st.rerun()
 
     st.markdown("---")
     st.caption("Phiên bản: **1.2.0 Pro**\nTối ưu xử lý danh sách bạn bè 3.000 - 4.000 Friends.")
