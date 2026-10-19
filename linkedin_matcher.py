@@ -369,10 +369,11 @@ def evaluate_linkedin_candidate(
         if not has_secondary:
             continue
 
+        norm_link = re.sub(r"^https?://[a-zA-Z0-9_-]+\.linkedin\.com/", "https://www.linkedin.com/", link)
         if total_candidate_score > best_score:
             best_score = total_candidate_score
             best_match = {
-                "linkedin_url": link,
+                "linkedin_url": norm_link,
                 "linkedin_title": title,
                 "linkedin_snippet": snippet,
                 "score": total_candidate_score
