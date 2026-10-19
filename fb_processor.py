@@ -743,9 +743,16 @@ def clean_and_reorder_crm_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     # 4. Standardize Link LinkedIn: replace vn.linkedin.com with global www.linkedin.com
     if "Link LinkedIn" in out.columns:
-        out["Link LinkedIn"] = out["Link LinkedIn"].astype(str).apply(
-            lambda x: re.sub(r"^https?://[a-zA-Z0-9_-]+\.linkedin\.com/", "https://www.linkedin.com/", x) if "linkedin.com/in" in x else x
-        )
+        def _clean_li(val):
+            if pd.isna(val) or not val:
+                return ""
+            s = str(val).strip()
+            if s.lower() == "nan":
+                return ""
+            if "linkedin.com/in" in s:
+                return re.sub(r"^https?://[a-zA-Z0-9_-]+\.linkedin\.com/", "https://www.linkedin.com/", s)
+            return s
+        out["Link LinkedIn"] = out["Link LinkedIn"].apply(_clean_li)
 
     existing_desired = [c for c in desired_order if c in out.columns]
     remaining_cols = [c for c in out.columns if c not in desired_order]

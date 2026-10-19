@@ -441,6 +441,7 @@ def recheck_and_clean_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, in
 
         if eval_res["linkedin_url"]:
             # Valid match confirmed!
+            cleaned_df.at[idx, "Link LinkedIn"] = eval_res["linkedin_url"]
             cleaned_df.at[idx, "Độ khớp LinkedIn"] = eval_res["match_score"]
             retained_count += 1
         else:
