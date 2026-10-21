@@ -1529,15 +1529,6 @@ with tab_results:
             <span>Chưa có dữ liệu CRM trong phiên của bạn. Vui lòng nạp file và cào sâu ở Tab 1 trước.</span>
         </div>
         """, unsafe_allow_html=True)
-        if os.path.exists(DEMO_CRM_FILE):
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🧪 Nạp xem thử dữ liệu mẫu demo (3.122 khách hàng)", type="secondary"):
-                try:
-                    demo_df = pd.read_csv(DEMO_CRM_FILE, encoding="utf-8-sig")
-                    st.session_state.processed_df = clean_and_reorder_crm_dataframe(demo_df)
-                    st.rerun()
-                except Exception:
-                    pass
     else:
         res_df = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
         tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in res_df.columns else "Phân loại Lead"
