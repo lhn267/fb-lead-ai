@@ -22,7 +22,7 @@ from fb_processor import (
     clean_and_reorder_crm_dataframe,
     map_to_info_completeness
 )
-from fb_deep_crawler import run_deep_profile_crawl, CHROME_PROFILE_DIR
+from fb_deep_crawler import run_deep_profile_crawl, CHROME_PROFILE_DIR, get_clean_profile_url
 
 @st.cache_resource
 def ensure_cloud_playwright():
