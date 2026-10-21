@@ -198,23 +198,47 @@ def extract_work_education_from_page(page: Page) -> Dict[str, Any]:
     }
 
 def inject_cookie_string(context, cookie_str: str):
-    """Parses standard cookie string and injects into Playwright browser context."""
+    """Parses standard cookie header string or JSON array and injects into Playwright browser context."""
     if not cookie_str or not isinstance(cookie_str, str):
         return
+    cookie_str = cookie_str.strip()
     cookies = []
-    for item in cookie_str.split(";"):
-        item = item.strip()
-        if "=" in item:
-            name, val = item.split("=", 1)
-            name = name.strip()
-            val = val.strip()
-            if name:
-                cookies.append({
-                    "name": name,
-                    "value": val,
-                    "domain": ".facebook.com",
-                    "path": "/"
-                })
+
+    # 1. Try parsing as JSON array (e.g., exported directly from Cookie-Editor extension)
+    if (cookie_str.startswith("[") and cookie_str.endswith("]")) or (cookie_str.startswith("{") and cookie_str.endswith("}")):
+        try:
+            parsed = json.loads(cookie_str)
+            raw_items = parsed if isinstance(parsed, list) else [parsed]
+            for item in raw_items:
+                if isinstance(item, dict) and item.get("name") and item.get("value") is not None:
+                    domain = str(item.get("domain", ".facebook.com")).strip()
+                    if not domain.startswith("."):
+                        domain = f".{domain}"
+                    cookies.append({
+                        "name": str(item["name"]).strip(),
+                        "value": str(item["value"]).strip(),
+                        "domain": domain if "facebook.com" in domain else ".facebook.com",
+                        "path": str(item.get("path", "/")).strip() or "/"
+                    })
+        except Exception:
+            pass
+
+    # 2. If not JSON, parse as header string "c_user=...; xs=..." or newline-separated
+    if not cookies:
+        normalized = cookie_str.replace("\n", ";").replace("&", ";")
+        for item in normalized.split(";"):
+            item = item.strip()
+            if "=" in item:
+                name, val = item.split("=", 1)
+                name = name.strip()
+                val = val.strip()
+                if name:
+                    cookies.append({
+                        "name": name,
+                        "value": val,
+                        "domain": ".facebook.com",
+                        "path": "/"
+                    })
     if cookies:
         context.add_cookies(cookies)
 

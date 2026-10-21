@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import shutil
+import platform
 import pandas as pd
 import streamlit as st
 import importlib
@@ -207,8 +208,20 @@ SESSIONS_DIR = ".temp_sessions"
 DEMO_CRM_FILE = "crm_leads_autosave.csv"
 DEMO_DEEP_FILE = "deep_crawl_autosave.csv"
 
+def is_cloud_environment() -> bool:
+    """Detects if app is running on Streamlit Cloud, Docker container, or Linux cloud server."""
+    return bool(
+        os.path.exists("/mount")
+        or os.path.exists("/app")
+        or os.getenv("STREAMLIT_SHARING_MODE")
+        or os.getenv("STREAMLIT_SERVER_BASE_URL_PATH")
+        or os.getenv("IS_STREAMLIT_CLOUD")
+        or os.getenv("STREAMLIT_COMMUNITY_CLOUD")
+        or (platform.system() == "Linux" and not os.path.exists("C:\\"))
+    )
+
 def find_most_recent_session():
-    """Finds the most recently active session folder that contains autosaved lead data."""
+    """Finds the most recently active session folder that contains autosaved lead data (local dev only)."""
     try:
         if not os.path.exists(SESSIONS_DIR):
             return None
@@ -242,10 +255,12 @@ def get_session_id() -> str:
         if url_sid:
             sid = url_sid
         else:
-            # Fallback to the most recent existing session so screen sleep / tab reload never wipes data
-            recent_sid = find_most_recent_session()
-            if recent_sid:
-                sid = recent_sid
+            # In multi-tenant cloud deployments, ALWAYS generate a fresh unique session ID
+            # to guarantee 100% data isolation between different visitors.
+            # Local single-user machine may fall back to recent session if no sid is provided.
+            if not is_cloud_environment():
+                recent_sid = find_most_recent_session()
+                sid = recent_sid if recent_sid else str(uuid.uuid4())[:8]
             else:
                 sid = str(uuid.uuid4())[:8]
         st.session_state.session_id = sid
@@ -326,15 +341,21 @@ def cleanup_old_sessions(max_age_hours: int = 72):
 # Periodically prune stale session folders
 cleanup_old_sessions()
 
+def get_session_config_path() -> str:
+    try:
+        return os.path.join(get_session_dir(), "session_config.json")
+    except Exception:
+        return ""
+
 def load_saved_config():
     # If the user has changed config in their current isolated session, preserve it
-    if "saved_config" in st.session_state:
+    if "saved_config" in st.session_state and isinstance(st.session_state["saved_config"], dict):
         return dict(st.session_state["saved_config"])
 
     cfg = {}
-    # 1. Cloud Secrets (Streamlit Cloud / Hugging Face Spaces)
+    # 1. Cloud Secrets (Streamlit Cloud / Admin global defaults)
     try:
-        if hasattr(st, "secrets"):
+        if hasattr(st, "secrets") and st.secrets:
             for sec_k, sec_v in st.secrets.items():
                 if isinstance(sec_v, str):
                     k = sec_k.lower().strip()
@@ -378,12 +399,24 @@ def load_saved_config():
     if os.getenv("FB_COOKIE") and not cfg.get("fb_cookie"):
         cfg["fb_cookie"] = os.getenv("FB_COOKIE").strip()
 
-    # 3. Local disk config.json (persists locally for single-user dev)
-    if os.path.exists(CONFIG_FILE):
+    # 3. Session-specific saved config (isolated per user workspace)
+    try:
+        s_cfg_path = get_session_config_path()
+        if s_cfg_path and os.path.exists(s_cfg_path):
+            with open(s_cfg_path, "r", encoding="utf-8") as f:
+                s_cfg = json.load(f)
+                if isinstance(s_cfg, dict):
+                    cfg.update({k: v for k, v in s_cfg.items() if v})
+    except Exception:
+        pass
+
+    # 4. Local disk config.json (persists locally for single-user dev only)
+    if not is_cloud_environment() and os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 disk_cfg = json.load(f)
-                cfg.update({k: v for k, v in disk_cfg.items() if v})
+                if isinstance(disk_cfg, dict):
+                    cfg.update({k: v for k, v in disk_cfg.items() if v})
         except Exception:
             pass
 
@@ -391,19 +424,23 @@ def load_saved_config():
     if "provider" not in cfg:
         cfg["provider"] = "gemini" if cfg.get("gemini_key") else ("openai" if cfg.get("openai_key") else "offline")
 
+    st.session_state["saved_config"] = cfg
     return cfg
 
 def save_user_config(config_dict):
     st.session_state["saved_config"] = config_dict
-    # Only write to shared config.json if running in local standalone mode.
-    # In cloud environments, keep config strictly inside st.session_state to prevent multi-tenant key leakage.
-    is_cloud = bool(
-        os.getenv("STREAMLIT_SHARING_MODE")
-        or os.getenv("STREAMLIT_SERVER_BASE_URL_PATH")
-        or os.getenv("IS_STREAMLIT_CLOUD")
-        or os.path.exists("/app")
-    )
-    if not is_cloud:
+    
+    # Save to user's isolated session folder so refreshing/reconnecting restores their keys & cookies
+    try:
+        s_cfg_path = get_session_config_path()
+        if s_cfg_path:
+            with open(s_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(config_dict, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    # Only write to shared root config.json if running in local standalone mode
+    if not is_cloud_environment():
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config_dict, f, ensure_ascii=False, indent=2)
@@ -790,23 +827,39 @@ with tab_deep_crawl:
     """, unsafe_allow_html=True)
 
     # Status of login session
-    session_exists = os.path.exists(CHROME_PROFILE_DIR) and len(os.listdir(CHROME_PROFILE_DIR)) > 0
+    is_cloud = is_cloud_environment()
+    session_exists = (not is_cloud) and os.path.exists(CHROME_PROFILE_DIR) and len(os.listdir(CHROME_PROFILE_DIR)) > 0
     saved_fb_cookie = saved_cfg.get("fb_cookie", "")
 
     if not session_exists and not saved_fb_cookie:
-        st.markdown(f"""
-        <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:15px; color:#92400E;">
-            <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
-                <span class="icon-pill icon-pill-amber">{get_svg_icon('shield', 18, '#D97706')}</span>
-                <span>LƯU Ý: CẦN CÓ PHIÊN ĐĂNG NHẬP FACEBOOK ĐỂ CÀO ĐẦY ĐỦ THÔNG TIN</span>
+        if is_cloud:
+            st.markdown(f"""
+            <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:15px; color:#92400E;">
+                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                    <span class="icon-pill icon-pill-amber">{get_svg_icon('shield', 18, '#D97706')}</span>
+                    <span>CẦN DÁN COOKIE FACEBOOK ĐỂ CÀO ĐẦY ĐỦ THÔNG TIN</span>
+                </div>
+                <div style="font-size:0.9rem; line-height:1.5;">
+                    Ứng dụng đang chạy trên Cloud: Để cào sâu công việc & học vấn của bạn bè, bạn chỉ cần <b>dán chuỗi Cookie Facebook</b> vào ô bên dưới.<br>
+                    &bull; Phiên làm việc và Cookie được lưu riêng biệt & bảo mật 100% cho tài khoản của bạn.<br>
+                    &bull; <i>Cách lấy Cookie cực nhanh:</i> Cài tiện ích <b>Cookie-Editor</b> trên Chrome &rarr; vào facebook.com &rarr; mở Cookie-Editor bấm <b>Export &rarr; Copy Header (hoặc JSON)</b> rồi dán vào ô bên dưới.
+                </div>
             </div>
-            <div style="font-size:0.9rem; line-height:1.5;">
-                Bạn có thể chọn 1 trong 2 cách cực kỳ nhanh sau:<br>
-                &bull; <b>Cách 1 (Nhanh nhất):</b> Dán chuỗi <b>Cookie Facebook</b> vào ô bên dưới (chỉ dán 1 lần, hệ thống nhớ vĩnh viễn).<br>
-                &bull; <b>Cách 2:</b> Nháy đúp chuột vào file <b><code>Dang_Nhap_Facebook.bat</code></b> trong thư mục máy tính, đăng nhập Facebook 1 lần rồi tắt trình duyệt đó đi.
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:15px; color:#92400E;">
+                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                    <span class="icon-pill icon-pill-amber">{get_svg_icon('shield', 18, '#D97706')}</span>
+                    <span>LƯU Ý: CẦN CÓ PHIÊN ĐĂNG NHẬP FACEBOOK ĐỂ CÀO ĐẦY ĐỦ THÔNG TIN</span>
+                </div>
+                <div style="font-size:0.9rem; line-height:1.5;">
+                    Bạn có thể chọn 1 trong 2 cách cực kỳ nhanh sau:<br>
+                    &bull; <b>Cách 1 (Nhanh nhất):</b> Dán chuỗi <b>Cookie Facebook</b> vào ô bên dưới (chỉ dán 1 lần, hệ thống nhớ vĩnh viễn).<br>
+                    &bull; <b>Cách 2:</b> Nháy đúp chuột vào file <b><code>Dang_Nhap_Facebook.bat</code></b> trong thư mục máy tính, đăng nhập Facebook 1 lần rồi tắt trình duyệt đó đi.
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
         <div class="alert-success" style="margin-bottom:12px;">
