@@ -207,6 +207,29 @@ SESSIONS_DIR = ".temp_sessions"
 DEMO_CRM_FILE = "crm_leads_autosave.csv"
 DEMO_DEEP_FILE = "deep_crawl_autosave.csv"
 
+def find_most_recent_session():
+    """Finds the most recently active session folder that contains autosaved lead data."""
+    try:
+        if not os.path.exists(SESSIONS_DIR):
+            return None
+        candidates = []
+        for folder_name in os.listdir(SESSIONS_DIR):
+            folder_path = os.path.join(SESSIONS_DIR, folder_name)
+            if os.path.isdir(folder_path):
+                crm_file = os.path.join(folder_path, "crm_leads_autosave.csv")
+                raw_file = os.path.join(folder_path, "raw_input.csv")
+                deep_file = os.path.join(folder_path, "deep_crawl_autosave.csv")
+                files = [f for f in [crm_file, raw_file, deep_file] if os.path.exists(f)]
+                if files:
+                    mtime = max(os.path.getmtime(f) for f in files)
+                    candidates.append((mtime, folder_name))
+        if candidates:
+            candidates.sort(reverse=True)
+            return candidates[0][1]
+    except Exception:
+        pass
+    return None
+
 def get_session_id() -> str:
     """Returns a persistent session ID for the user's browser session, synced with URL query parameters."""
     if "session_id" in st.session_state and st.session_state.session_id:
@@ -219,7 +242,12 @@ def get_session_id() -> str:
         if url_sid:
             sid = url_sid
         else:
-            sid = str(uuid.uuid4())[:8]
+            # Fallback to the most recent existing session so screen sleep / tab reload never wipes data
+            recent_sid = find_most_recent_session()
+            if recent_sid:
+                sid = recent_sid
+            else:
+                sid = str(uuid.uuid4())[:8]
         st.session_state.session_id = sid
 
     # Keep URL query param strictly synchronized
@@ -442,52 +470,105 @@ def clear_autosaved_data():
                     os.remove(f)
                 except Exception:
                     pass
+        clear_browser_storage()
     except Exception:
         pass
 
-def trigger_completion_alert(title="✅ [XONG 100%] Đã bóc tách thành công!"):
-    """Notifies user in background browser tabs using Web Audio synthesizer chime and document.title change."""
+def update_browser_tab_title(title: str):
+    """Updates browser tab title silently (NO SOUND) so users in other tabs see progress/completion."""
     try:
         import streamlit.components.v1 as components
-        alert_html = f"""
+        html_code = f"""
         <script>
         try {{
             if (window.parent && window.parent.document) {{
                 window.parent.document.title = {json.dumps(title)};
             }}
         }} catch(e) {{}}
+        </script>
+        """
+        components.html(html_code, height=0)
+    except Exception:
+        pass
+
+def inject_session_guardian(current_sid: str):
+    """
+    Client-side session guardian:
+    1. Keeps browser localStorage synchronized with current session ID.
+    2. If user opens website without '?sid=', restores their previous active workspace.
+    """
+    try:
+        import streamlit.components.v1 as components
+        js_code = f"""
+        <script>
         try {{
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (AudioContext) {{
-                const ctx = new AudioContext();
-                const now = ctx.currentTime;
-                
-                const osc1 = ctx.createOscillator();
-                const gain1 = ctx.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.setValueAtTime(659.25, now);
-                gain1.gain.setValueAtTime(0.15, now);
-                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-                osc1.connect(gain1);
-                gain1.connect(ctx.destination);
-                osc1.start(now);
-                osc1.stop(now + 0.25);
-                
-                const osc2 = ctx.createOscillator();
-                const gain2 = ctx.createGain();
-                osc2.type = 'sine';
-                osc2.frequency.setValueAtTime(880.00, now + 0.18);
-                gain2.gain.setValueAtTime(0.2, now + 0.18);
-                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-                osc2.connect(gain2);
-                gain2.connect(ctx.destination);
-                osc2.start(now + 0.18);
-                osc2.stop(now + 0.55);
+            const currentSid = {json.dumps(current_sid)};
+            const urlParams = new URLSearchParams(window.location.search);
+            const sidInUrl = urlParams.get('sid');
+            const savedSid = localStorage.getItem('fb_crm_workspace_id');
+
+            if (!sidInUrl && savedSid && savedSid.length > 2) {{
+                if (window.parent && window.parent.location) {{
+                    window.parent.location.replace(window.parent.location.pathname + '?sid=' + savedSid);
+                }}
+            }} else if (currentSid) {{
+                localStorage.setItem('fb_crm_workspace_id', currentSid);
             }}
         }} catch(e) {{}}
         </script>
         """
-        components.html(alert_html, height=0)
+        components.html(js_code, height=0)
+    except Exception:
+        pass
+
+def activate_screen_wake_lock():
+    """Prevents laptop screen from sleeping while crawl/processing is actively running."""
+    try:
+        import streamlit.components.v1 as components
+        js_code = """
+        <script>
+        (async () => {
+            try {
+                if ('wakeLock' in navigator) {
+                    window._fbWakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch(e) {}
+        })();
+        </script>
+        """
+        components.html(js_code, height=0)
+    except Exception:
+        pass
+
+def release_screen_wake_lock():
+    """Releases screen wake lock when crawl finishes."""
+    try:
+        import streamlit.components.v1 as components
+        js_code = """
+        <script>
+        try {
+            if (window._fbWakeLock) {
+                window._fbWakeLock.release().then(() => { window._fbWakeLock = null; });
+            }
+        } catch(e) {}
+        </script>
+        """
+        components.html(js_code, height=0)
+    except Exception:
+        pass
+
+def clear_browser_storage():
+    """Clears localStorage on client side."""
+    try:
+        import streamlit.components.v1 as components
+        js_code = """
+        <script>
+        try {
+            localStorage.removeItem('fb_crm_workspace_id');
+        } catch(e) {}
+        </script>
+        """
+        components.html(js_code, height=0)
     except Exception:
         pass
 
@@ -685,6 +766,8 @@ st.markdown(f"""
 <div class="sub-header">Tải file danh sách bạn bè cào từ Facebook (CSV / Excel) &rarr; Bấm nút &rarr; AI tự động bóc tách Họ tên, Chức vụ, Công ty, Trường học & Lọc sạch dữ liệu rác chuẩn CRM.</div>
 """, unsafe_allow_html=True)
 
+inject_session_guardian(get_session_id())
+
 # Tabs
 tab_upload, tab_deep_crawl, tab_results, tab_linkedin, tab_analytics, tab_guide = st.tabs([
     "1. Nạp File & Phân Tích",
@@ -695,275 +778,35 @@ tab_upload, tab_deep_crawl, tab_results, tab_linkedin, tab_analytics, tab_guide 
     "6. Hướng Dẫn Sử Dụng"
 ])
 
-
-
 # ----------------- TAB 1: UPLOAD & PROCESS -----------------
 with tab_upload:
-    st.markdown(f"""
-    <div class="section-title">
-        <span class="icon-pill icon-pill-blue">{get_svg_icon('upload', 18, '#2563EB')}</span>
-        <span>Tải Lên File Cào Danh Sách Bạn Bè Facebook</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    uploaded_files = st.file_uploader(
-        "Chọn 1 hoặc nhiều file xuất từ Instant Data Scraper (.csv, .xlsx, .xls)",
-        type=["csv", "xlsx", "xls"],
-        accept_multiple_files=True,
-        help="Kéo thả tất cả các file bạn vừa quét (ví dụ quét theo chữ A, B, C... hoặc từng đợt) vào đây. Hệ thống sẽ tự động gộp và loại bỏ trùng lặp 100%!"
-    )
-
-    if uploaded_files:
-        try:
-            st.session_state["data_cleared"] = False
-            dfs = [clean_file_data(f) for f in uploaded_files]
-            deduped_df, total_before, dupes_removed = merge_and_deduplicate_dfs(dfs)
-            st.session_state.raw_df = deduped_df
-            st.session_state.total_files_count = len(uploaded_files)
-            st.session_state.total_before_dedup = total_before
-            st.session_state.dupes_removed_count = dupes_removed
-            
-            if len(uploaded_files) == 1:
-                st.session_state.selected_file_name = uploaded_files[0].name
-            else:
-                st.session_state.selected_file_name = f"{len(uploaded_files)} files: " + ", ".join([f.name for f in uploaded_files[:2]]) + ("..." if len(uploaded_files) > 2 else "")
-
-            # Persist raw file to current session folder so laptop sleep / reload never loses it!
-            save_raw_autosave(
-                deduped_df,
-                file_name=st.session_state.selected_file_name,
-                dupes_count=dupes_removed,
-                before_count=total_before,
-                files_count=len(uploaded_files)
-            )
-        except Exception as e:
-            st.error(f"Lỗi khi đọc file: {e}")
-
     df_current = st.session_state.raw_df
+    curr_crm = st.session_state.processed_df
+    has_crm_data = (curr_crm is not None and not curr_crm.empty)
+    done_count = len(curr_crm) if has_crm_data else 0
+    total_input_count = len(df_current) if df_current is not None else done_count
 
-    if df_current is not None and not uploaded_files:
-        st.markdown(f"""
-        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:10px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
-            <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
-            <span><b>Đã tự động khôi phục dữ liệu bạn bè từ phiên trước:</b> <b>{len(df_current):,} người bạn</b> ({st.session_state.selected_file_name}). Bạn có thể tiếp tục xử lý hoặc kéo thả file mới ở trên để thay thế.</span>
-        </div>
-        """, unsafe_allow_html=True)
+    # Pre-detect default columns if df_current is loaded
+    sel_name_col = None
+    sel_link_col = None
+    sel_info_cols = []
+    if df_current is not None and not df_current.empty:
+        detected_auto = detect_columns(df_current)
+        all_cols_auto = list(df_current.columns)
+        sel_name_col = detected_auto.get("name_col") or all_cols_auto[0]
+        sel_link_col = detected_auto.get("link_col") or (all_cols_auto[1] if len(all_cols_auto) > 1 else all_cols_auto[0])
+        sel_info_cols = [c for c in detected_auto.get("info_cols", []) if c in all_cols_auto and c not in [sel_name_col, sel_link_col]]
+        if not sel_info_cols and detected_auto.get("info_col") in all_cols_auto:
+            sel_info_cols = [detected_auto.get("info_col")]
 
-    if df_current is not None:
-        st.markdown("---")
-        
-        # Display Deduplication Status Banner
-        if st.session_state.dupes_removed_count > 0 or st.session_state.total_files_count > 1:
-            st.markdown(f"""
-            <div class="alert-success">
-                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
-                <div>
-                    <strong style="font-size:0.98rem;">TỰ ĐỘNG GỘP VÀ KHỬ TRÙNG LẶP THÀNH CÔNG</strong><br>
-                    <span>&bull; <b>Số file đã nạp:</b> {st.session_state.total_files_count} file</span><br>
-                    <span>&bull; <b>Tổng số dòng gộp lại:</b> {st.session_state.total_before_dedup} dòng</span><br>
-                    <span>&bull; <b>Số bạn bè bị quét trùng đã tự động loại bỏ:</b> {st.session_state.dupes_removed_count} dòng (chuẩn hóa theo Link Profile)</span><br>
-                    <span>&bull; <b>Dữ liệu bạn bè duy nhất thực tế đưa vào AI:</b> <b>{len(df_current)} người</b></span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div style="display:flex; align-items:center; gap:10px; margin: 10px 0;">
-                <span class="icon-pill icon-pill-blue">{get_svg_icon('users', 18, '#2563EB')}</span>
-                <span style="font-size: 1.1rem; font-weight: 600; color: #1E293B;">Dữ liệu đầu vào: {len(df_current)} người bạn (Nguồn: {st.session_state.selected_file_name})</span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Auto-detect columns (Content-Aware, like ChatGPT)
-        detected = detect_columns(df_current)
-        all_cols = list(df_current.columns)
+    t1_resume_btn = False
+    t1_restart_btn = False
+    start_btn = False
+    bottom_restart_btn = False
 
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            name_idx = all_cols.index(detected["name_col"]) if detected.get("name_col") in all_cols else 0
-            sel_name_col = st.selectbox("Cột Họ và tên", options=all_cols, index=name_idx, help="Hệ thống đã tự động lọc bỏ các cột ảnh avatar")
-
-        with col_c2:
-            link_idx = all_cols.index(detected["link_col"]) if detected.get("link_col") in all_cols else 0
-            sel_link_col = st.selectbox("Cột Link Profile Facebook", options=all_cols, index=link_idx, help="Cột chứa đường dẫn facebook.com")
-
-        # Smart multi-select for Info columns
-        default_info = [c for c in detected.get("info_cols", []) if c in all_cols and c not in [sel_name_col, sel_link_col]]
-        if not default_info and detected.get("info_col") in all_cols and detected.get("info_col") not in [sel_name_col, sel_link_col]:
-            default_info = [detected.get("info_col")]
-
-        sel_info_cols = st.multiselect(
-            "Các cột chứa Thông tin Công việc / Học vấn / Bạn chung (Tự động gộp dữ liệu như ChatGPT):",
-            options=[c for c in all_cols if c not in [sel_name_col, sel_link_col]],
-            default=default_info,
-            help="Hệ thống sẽ tự động gộp nội dung các cột này lại với nhau (giống như cách ChatGPT đọc toàn bộ dòng) để AI có đầy đủ thông tin nhất."
-        )
-
-        if not sel_info_cols:
-            st.markdown(f"""
-            <div style="background-color:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:14px 18px; margin: 12px 0; color:#991B1B;">
-                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
-                    <span class="icon-pill icon-pill-rose">{get_svg_icon('shield', 18, '#DC2626')}</span>
-                    <span>CẢNH BÁO: FILE NÀY KHÔNG CÓ CỘT THÔNG TIN CÔNG VIỆC / HỌC VẤN!</span>
-                </div>
-                <div style="font-size:0.9rem; line-height:1.5;">
-                    • <b>Hiện trạng file:</b> File bạn vừa nạp chỉ có cột Tên và Link, hoàn toàn không có cột chữ mô tả nào từ Facebook. Nếu bấm xử lý, AI sẽ không có dữ liệu để đọc.<br>
-                    • <b>Nguyên nhân 1:</b> Khi quét bằng Instant Data Scraper, tool đã bắt nhầm khung bảng con. Hãy bấm nút <b>"Try another table"</b> trên tiện ích để chọn khung to bao quát cả dòng công việc.<br>
-                    • <b>Nguyên nhân 2:</b> Trên màn hình Facebook bạn vừa quét, tài khoản đó chỉ hiện chữ "X bạn chung" chứ Facebook không hiển thị dòng học vấn/công việc ra ngoài danh sách bạn bè.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with st.expander("Xem trước dữ liệu chuẩn bị gửi cho AI (5 người đầu tiên)"):
-            preview_rows = []
-            for idx, r in df_current.head(5).iterrows():
-                nm = str(r.get(sel_name_col, "")).strip() if pd.notna(r.get(sel_name_col)) else ""
-                lk = str(r.get(sel_link_col, "")).strip() if pd.notna(r.get(sel_link_col)) else ""
-                inf_parts = []
-                for c in sel_info_cols:
-                    if c in df_current.columns and pd.notna(r.get(c)):
-                        v = str(r.get(c, "")).strip()
-                        if v and v.lower() != "nan" and not v.startswith("http"):
-                            inf_parts.append(v)
-                preview_rows.append({
-                    "Họ và tên": nm,
-                    "Link Facebook": lk,
-                    "Thông tin gộp gửi cho AI": " · ".join(inf_parts) if inf_parts else "(Không có mô tả công việc)"
-                })
-            st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Check existing processing progress to offer smart resume or re-run
-        curr_processed = st.session_state.processed_df
-        done_count = len(curr_processed) if curr_processed is not None and not curr_processed.empty else 0
-        total_input_count = len(df_current)
-
-        start_btn = False
-        resume_btn = False
-        restart_btn = False
-
-        if 0 < done_count < total_input_count:
-            # INTERRUPTED / PARTIAL PROGRESS DETECTED
-            st.markdown(f"""
-            <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:14px; color:#92400E;">
-                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.02rem; margin-bottom:4px;">
-                    <span class="icon-pill icon-pill-amber">{get_svg_icon('bolt', 18, '#D97706')}</span>
-                    <span>PHÁT HIỆN TIẾN ĐỘ ĐANG LÀM DỞ: ĐÃ BÓC TÁCH {done_count:,} / {total_input_count:,} NGƯỜI BẠN</span>
-                </div>
-                <div style="font-size:0.9rem; line-height:1.5;">
-                    Hệ thống đã lưu an toàn <b>{done_count:,} người bạn</b> đầu tiên vào máy (kể cả khi màn hình máy tính vừa tắt hoặc mạng gián đoạn). Bạn có thể bấm nút <b>Tiếp tục bóc tách</b> để chạy nối tiếp từ người thứ <b>#{done_count + 1}</b> mà không cần chạy lại từ đầu!
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            b_col1, b_col2 = st.columns([3, 2])
-            with b_col1:
-                resume_btn = st.button(
-                    f"▶️ TIẾP TỤC BÓC TÁCH (từ người #{done_count + 1} đến #{total_input_count})",
-                    type="primary",
-                    use_container_width=True
-                )
-            with b_col2:
-                restart_btn = st.button("🔄 Xử lý lại từ đầu (từ người #1)", type="secondary", use_container_width=True)
-
-        elif done_count >= total_input_count and total_input_count > 0:
-            # COMPLETED 100%
-            st.markdown(f"""
-            <div class="alert-success" style="margin-bottom:12px;">
-                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
-                <div>
-                    <strong style="font-size:0.98rem;">ĐÃ HOÀN TẤT BÓC TÁCH TOÀN BỘ FILE (100%)</strong><br>
-                    <span>Toàn bộ <b>{done_count:,} người bạn</b> đã được phân tích và chuẩn hóa sẵn sàng trong bảng CRM ngay bên dưới!</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            r_col1, _ = st.columns([2, 3])
-            with r_col1:
-                restart_btn = st.button("🔄 Chạy lại toàn bộ tệp này", type="secondary", use_container_width=True)
-
-        else:
-            # FRESH START
-            btn_col1, _ = st.columns([2, 3])
-            with btn_col1:
-                start_btn = st.button("BẮT ĐẦU XỬ LÝ & BÓC TÁCH DỮ LIỆU", type="primary", use_container_width=True)
-
-        if start_btn or resume_btn or restart_btn:
-            if provider_code != "offline" and not api_key:
-                st.warning("Bạn chưa nhập API Key. Hệ thống sẽ tự động chuyển sang chế độ Offline (sử dụng bộ quy tắc nội bộ) để xử lý dữ liệu cho bạn.")
-                eff_provider = "offline"
-                eff_key = None
-            else:
-                eff_provider = provider_code
-                eff_key = api_key
-
-            is_resume = bool(resume_btn and (0 < done_count < total_input_count))
-            offset_start = done_count if is_resume else 0
-            base_accumulated = curr_processed if is_resume else None
-            df_to_run = df_current.iloc[offset_start:] if is_resume else df_current
-            slice_total = len(df_to_run)
-
-            progress_bar = st.progress(int((offset_start / total_input_count) * 100) if total_input_count > 0 else 0)
-            status_text = st.empty()
-
-            def update_progress(done_in_slice, total_in_slice):
-                curr_overall = offset_start + done_in_slice
-                pct = int((curr_overall / total_input_count) * 100) if total_input_count > 0 else 0
-                try:
-                    progress_bar.progress(min(pct, 100))
-                    status_text.text(f"Đang xử lý: {curr_overall}/{total_input_count} người bạn ({pct}%)...")
-                except Exception:
-                    pass
-
-            def crm_batch_checkpoint(partial_slice_df):
-                if base_accumulated is not None and not base_accumulated.empty:
-                    merged = pd.concat([base_accumulated, partial_slice_df], ignore_index=True)
-                    merged = clean_and_reorder_crm_dataframe(merged)
-                else:
-                    merged = partial_slice_df
-                st.session_state.processed_df = merged
-                save_crm_autosave(merged)
-
-            try:
-                start_time = time.time()
-                status_text.text(f"Đang khởi động phân tích {slice_total} người bạn...")
-                
-                processed_results = process_friends_dataframe(
-                    df=df_to_run,
-                    name_col=sel_name_col,
-                    link_col=sel_link_col,
-                    info_cols=sel_info_cols,
-                    api_key=eff_key,
-                    api_provider=eff_provider,
-                    model_name=model_name,
-                    target_criteria=target_criteria,
-                    batch_size=batch_size,
-                    progress_callback=update_progress,
-                    checkpoint_callback=crm_batch_checkpoint
-                )
-                
-                if base_accumulated is not None and not base_accumulated.empty:
-                    final_df = pd.concat([base_accumulated, processed_results], ignore_index=True)
-                    final_df = clean_and_reorder_crm_dataframe(final_df)
-                else:
-                    final_df = processed_results
-
-                elapsed = round(time.time() - start_time, 1)
-                st.session_state.processed_df = final_df
-                save_crm_autosave(final_df)
-                progress_bar.progress(100)
-                status_text.success(f"Hoàn tất xử lý {len(final_df)} người bạn trong {elapsed} giây (Đã tự động lưu an toàn vào máy)!")
-                
-                # Audio chime + Browser tab title alert for background tabs!
-                trigger_completion_alert(f"✅ [XONG 100%] Đã bóc tách {len(final_df):,} Lead!")
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Xảy ra lỗi trong quá trình xử lý: {str(e)}")
-
-    # ----------------- DIRECT CRM TABLE DISPLAY IN TAB 1 -----------------
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        tab1_res_df = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
+    # ----------------- REGION 1: TOP DISPLAY (TABLE & STATUS) IF DATA EXISTS -----------------
+    if has_crm_data:
+        tab1_res_df = clean_and_reorder_crm_dataframe(curr_crm)
         t1_tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in tab1_res_df.columns else "Phân loại Lead"
         t1_total = len(tab1_res_df)
         t1_high = len(tab1_res_df[tab1_res_df[t1_tier_col] == "Cao"])
@@ -971,15 +814,55 @@ with tab_upload:
         t1_valid = len(tab1_res_df[tab1_res_df["Đánh giá"] == "Hợp lệ"])
         t1_trash = len(tab1_res_df[tab1_res_df["Đánh giá"].str.contains("Rác", na=False)])
 
-        st.markdown("---")
-        st.markdown(f"""
-        <div class="section-title">
-            <span class="icon-pill icon-pill-emerald">{get_svg_icon('table', 18, '#059669')}</span>
-            <span>Bảng Kết Quả CRM Sau Khi Bóc Tách ({t1_total:,} Khách Hàng)</span>
-        </div>
-        """, unsafe_allow_html=True)
+        # Status Banner
+        if df_current is not None and 0 < done_count < total_input_count:
+            # INTERRUPTED / INCOMPLETE PROGRESS (e.g. laptop slept or user switched tabs)
+            st.markdown(f"""
+            <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:16px 20px; margin-bottom:14px; color:#92400E;">
+                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.08rem; margin-bottom:6px;">
+                    <span class="icon-pill icon-pill-amber">{get_svg_icon('bolt', 20, '#D97706')}</span>
+                    <span>TIẾN ĐỘ ĐÃ LƯU AN TOÀN: ĐÃ BÓC TÁCH {done_count:,} / {total_input_count:,} NGƯỜI BẠN</span>
+                </div>
+                <div style="font-size:0.92rem; line-height:1.5; color:#78350F;">
+                    Dữ liệu <b>{done_count:,} người bạn</b> đã được lưu an toàn 100% vào bảng bên dưới (không bị mất dù máy tính vừa tắt màn hình).<br>
+                    Bạn có thể <b>tải ngay file Excel bên dưới</b> hoặc bấm nút <b>Tiếp tục bóc tách</b> để hệ thống tự động cào tiếp phần còn lại!
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        # Tab 1 Summary KPIs
+            res_c1, res_c2, _ = st.columns([3.5, 2, 2.5])
+            with res_c1:
+                t1_resume_btn = st.button(
+                    f"▶️ TIẾP TỤC BÓC TÁCH (từ người #{done_count + 1} đến #{total_input_count})",
+                    type="primary",
+                    use_container_width=True,
+                    key="top_resume_btn"
+                )
+            with res_c2:
+                t1_restart_btn = st.button("🔄 Xử lý lại từ đầu", type="secondary", use_container_width=True, key="top_restart_btn")
+
+        elif df_current is not None and done_count >= total_input_count and total_input_count > 0:
+            st.markdown(f"""
+            <div class="alert-success" style="margin-bottom:14px;">
+                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 20, '#059669')}</span>
+                <div>
+                    <strong style="font-size:1.02rem;">ĐÃ HOÀN TẤT BÓC TÁCH TOÀN BỘ FILE (100%)</strong><br>
+                    <span>Toàn bộ <b>{done_count:,} người bạn</b> đã được phân tích và chuẩn hóa sẵn sàng trong bảng CRM ngay bên dưới!</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="alert-success" style="margin-bottom:14px;">
+                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 20, '#059669')}</span>
+                <div>
+                    <strong style="font-size:1.02rem;">DỮ LIỆU CRM ĐANG SẴN SÀNG ({done_count:,} KHÁCH HÀNG)</strong><br>
+                    <span>Dữ liệu từ phiên làm việc trước đã được tự động giữ nguyên vẹn trong bảng bên dưới.</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Summary KPIs
         tk1, tk2, tk3, tk4, tk5 = st.columns(5)
         with tk1:
             st.markdown(f'''
@@ -1034,7 +917,7 @@ with tab_upload:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Quick Action & Download bar right in Tab 1!
+        # 1-Click Direct Download Bar
         t1_dl_col1, t1_dl_col2, t1_dl_note = st.columns([2, 2, 4])
         t1_excel_bytes = export_styled_excel(tab1_res_df)
         with t1_dl_col1:
@@ -1044,7 +927,8 @@ with tab_upload:
                 file_name="facebook_leads_crm.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
-                use_container_width=True
+                use_container_width=True,
+                key="t1_dl_excel_top"
             )
         with t1_dl_col2:
             t1_csv_bytes = tab1_res_df.to_csv(index=False, encoding="utf-8-sig")
@@ -1053,16 +937,17 @@ with tab_upload:
                 data=t1_csv_bytes,
                 file_name="facebook_leads.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
+                key="t1_dl_csv_top"
             )
         with t1_dl_note:
             st.markdown(f"""
             <div style="font-size:0.88rem; color:#475569; padding-top:8px;">
-                {get_svg_icon('lightbulb', 14, '#D97706')} <i>Mẹo:</i> Chuyển sang <b>Tab 3: Bảng Kết Quả CRM</b> để dùng bộ lọc nâng cao, hoặc <b>Tab 4: Ghép Nối LinkedIn</b> để định danh profile.
+                {get_svg_icon('lightbulb', 14, '#D97706')} <i>Mẹo:</i> Sang <b>Tab 3: Bảng Kết Quả CRM</b> để dùng bộ lọc nâng cao, hoặc <b>Tab 4: Ghép Nối LinkedIn</b>.
             </div>
             """, unsafe_allow_html=True)
 
-        # Interactive preview table in Tab 1
+        # Interactive Table Preview
         t1_col_config = {
             "STT": st.column_config.NumberColumn("STT", width="small"),
             "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
@@ -1085,8 +970,246 @@ with tab_upload:
             styled_t1_table,
             use_container_width=True,
             column_config=t1_col_config,
-            height=450
+            height=420
         )
+        st.markdown("---")
+
+    # ----------------- REGION 2: FILE UPLOAD & CONFIGURATION -----------------
+    exp_header = "📂 Nạp file mới hoặc cấu hình bóc tách tệp khác" if has_crm_data else "Tải Lên File Cào Danh Sách Bạn Bè Facebook"
+    with st.expander(exp_header, expanded=(not has_crm_data)):
+        uploaded_files = st.file_uploader(
+            "Chọn 1 hoặc nhiều file xuất từ Instant Data Scraper (.csv, .xlsx, .xls)",
+            type=["csv", "xlsx", "xls"],
+            accept_multiple_files=True,
+            help="Kéo thả tất cả các file bạn vừa quét (ví dụ quét theo chữ A, B, C... hoặc từng đợt) vào đây. Hệ thống sẽ tự động gộp và loại bỏ trùng lặp 100%!",
+            key="t1_main_uploader"
+        )
+
+        if uploaded_files:
+            try:
+                st.session_state["data_cleared"] = False
+                dfs = [clean_file_data(f) for f in uploaded_files]
+                deduped_df, total_before, dupes_removed = merge_and_deduplicate_dfs(dfs)
+                st.session_state.raw_df = deduped_df
+                st.session_state.total_files_count = len(uploaded_files)
+                st.session_state.total_before_dedup = total_before
+                st.session_state.dupes_removed_count = dupes_removed
+                
+                if len(uploaded_files) == 1:
+                    st.session_state.selected_file_name = uploaded_files[0].name
+                else:
+                    st.session_state.selected_file_name = f"{len(uploaded_files)} files: " + ", ".join([f.name for f in uploaded_files[:2]]) + ("..." if len(uploaded_files) > 2 else "")
+
+                # Persist raw file to current session folder so laptop sleep / reload never loses it!
+                save_raw_autosave(
+                    deduped_df,
+                    file_name=st.session_state.selected_file_name,
+                    dupes_count=dupes_removed,
+                    before_count=total_before,
+                    files_count=len(uploaded_files)
+                )
+                df_current = deduped_df
+            except Exception as e:
+                st.error(f"Lỗi khi đọc file: {e}")
+
+        df_current = st.session_state.raw_df
+
+        if df_current is not None and not uploaded_files:
+            st.markdown(f"""
+            <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:10px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
+                <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
+                <span><b>Đã tự động khôi phục dữ liệu bạn bè từ phiên trước:</b> <b>{len(df_current):,} người bạn</b> ({st.session_state.selected_file_name}). Bạn có thể tiếp tục xử lý hoặc kéo thả file mới ở trên để thay thế.</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if df_current is not None:
+            st.markdown("---")
+            
+            # Display Deduplication Status Banner
+            if st.session_state.dupes_removed_count > 0 or st.session_state.total_files_count > 1:
+                st.markdown(f"""
+                <div class="alert-success">
+                    <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
+                    <div>
+                        <strong style="font-size:0.98rem;">TỰ ĐỘNG GỘP VÀ KHỬ TRÙNG LẶP THÀNH CÔNG</strong><br>
+                        <span>&bull; <b>Số file đã nạp:</b> {st.session_state.total_files_count} file</span><br>
+                        <span>&bull; <b>Tổng số dòng gộp lại:</b> {st.session_state.total_before_dedup} dòng</span><br>
+                        <span>&bull; <b>Số bạn bè bị quét trùng đã tự động loại bỏ:</b> {st.session_state.dupes_removed_count} dòng (chuẩn hóa theo Link Profile)</span><br>
+                        <span>&bull; <b>Dữ liệu bạn bè duy nhất thực tế đưa vào AI:</b> <b>{len(df_current)} người</b></span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="display:flex; align-items:center; gap:10px; margin: 10px 0;">
+                    <span class="icon-pill icon-pill-blue">{get_svg_icon('users', 18, '#2563EB')}</span>
+                    <span style="font-size: 1.1rem; font-weight: 600; color: #1E293B;">Dữ liệu đầu vào: {len(df_current)} người bạn (Nguồn: {st.session_state.selected_file_name})</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Auto-detect columns (Content-Aware, like ChatGPT)
+            detected = detect_columns(df_current)
+            all_cols = list(df_current.columns)
+
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                name_idx = all_cols.index(detected["name_col"]) if detected.get("name_col") in all_cols else 0
+                sel_name_col = st.selectbox("Cột Họ và tên", options=all_cols, index=name_idx, help="Hệ thống đã tự động lọc bỏ các cột ảnh avatar", key="t1_sel_name")
+
+            with col_c2:
+                link_idx = all_cols.index(detected["link_col"]) if detected.get("link_col") in all_cols else 0
+                sel_link_col = st.selectbox("Cột Link Profile Facebook", options=all_cols, index=link_idx, help="Cột chứa đường dẫn facebook.com", key="t1_sel_link")
+
+            # Smart multi-select for Info columns
+            default_info = [c for c in detected.get("info_cols", []) if c in all_cols and c not in [sel_name_col, sel_link_col]]
+            if not default_info and detected.get("info_col") in all_cols and detected.get("info_col") not in [sel_name_col, sel_link_col]:
+                default_info = [detected.get("info_col")]
+
+            sel_info_cols = st.multiselect(
+                "Các cột chứa Thông tin Công việc / Học vấn / Bạn chung (Tự động gộp dữ liệu như ChatGPT):",
+                options=[c for c in all_cols if c not in [sel_name_col, sel_link_col]],
+                default=default_info,
+                help="Hệ thống sẽ tự động gộp nội dung các cột này lại với nhau để AI có đầy đủ thông tin nhất.",
+                key="t1_sel_info"
+            )
+
+            if not sel_info_cols:
+                st.markdown(f"""
+                <div style="background-color:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:14px 18px; margin: 12px 0; color:#991B1B;">
+                    <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1rem; margin-bottom:6px;">
+                        <span class="icon-pill icon-pill-rose">{get_svg_icon('shield', 18, '#DC2626')}</span>
+                        <span>CẢNH BÁO: FILE NÀY KHÔNG CÓ CỘT THÔNG TIN CÔNG VIỆC / HỌC VẤN!</span>
+                    </div>
+                    <div style="font-size:0.9rem; line-height:1.5;">
+                        • <b>Hiện trạng file:</b> File bạn vừa nạp chỉ có cột Tên và Link, hoàn toàn không có cột chữ mô tả nào từ Facebook. Nếu bấm xử lý, AI sẽ không có dữ liệu để đọc.<br>
+                        • <b>Giải pháp:</b> Hãy dùng tính năng <b>Tab 2: Cào Sâu Trang Cá Nhân</b> để tự động mở trang cá nhân từng người và lấy thông tin.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with st.expander("Xem trước dữ liệu chuẩn bị gửi cho AI (5 người đầu tiên)"):
+                preview_rows = []
+                for idx, r in df_current.head(5).iterrows():
+                    nm = str(r.get(sel_name_col, "")).strip() if pd.notna(r.get(sel_name_col)) else ""
+                    lk = str(r.get(sel_link_col, "")).strip() if pd.notna(r.get(sel_link_col)) else ""
+                    inf_parts = []
+                    for c in sel_info_cols:
+                        if c in df_current.columns and pd.notna(r.get(c)):
+                            v = str(r.get(c, "")).strip()
+                            if v and v.lower() != "nan" and not v.startswith("http"):
+                                inf_parts.append(v)
+                    preview_rows.append({
+                        "Họ và tên": nm,
+                        "Link Facebook": lk,
+                        "Thông tin gộp gửi cho AI": " · ".join(inf_parts) if inf_parts else "(Không có mô tả công việc)"
+                    })
+                st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Start or re-run button inside expander
+            if not has_crm_data:
+                btn_col1, _ = st.columns([2.5, 3.5])
+                with btn_col1:
+                    start_btn = st.button("BẮT ĐẦU XỬ LÝ & BÓC TÁCH DỮ LIỆU", type="primary", use_container_width=True, key="exp_start_btn")
+            else:
+                btn_col1, _ = st.columns([2.5, 3.5])
+                with btn_col1:
+                    bottom_restart_btn = st.button("🔄 Bắt đầu bóc tách lại tệp này", type="secondary", use_container_width=True, key="exp_restart_btn")
+
+    # ----------------- REGION 3: PROCESSING EXECUTION -----------------
+    trigger_run = False
+    is_resume_action = False
+
+    if t1_resume_btn:
+        trigger_run = True
+        is_resume_action = True
+    elif t1_restart_btn or bottom_restart_btn:
+        trigger_run = True
+        is_resume_action = False
+    elif start_btn:
+        trigger_run = True
+        is_resume_action = False
+
+    if trigger_run and df_current is not None:
+        if provider_code != "offline" and not api_key:
+            st.warning("Bạn chưa nhập API Key. Hệ thống sẽ tự động chuyển sang chế độ Offline (sử dụng bộ quy tắc nội bộ) để xử lý dữ liệu cho bạn.")
+            eff_provider = "offline"
+            eff_key = None
+        else:
+            eff_provider = provider_code
+            eff_key = api_key
+
+        offset_start = done_count if is_resume_action else 0
+        base_accumulated = curr_crm if is_resume_action else None
+        df_to_run = df_current.iloc[offset_start:] if is_resume_action else df_current
+        slice_total = len(df_to_run)
+
+        # 1. Activate Screen Wake Lock so laptop screen does not shut off during crawl!
+        activate_screen_wake_lock()
+        update_browser_tab_title(f"⏳ Đang bóc tách ({offset_start}/{total_input_count})...")
+
+        progress_bar = st.progress(int((offset_start / total_input_count) * 100) if total_input_count > 0 else 0)
+        status_text = st.empty()
+
+        def update_progress(done_in_slice, total_in_slice):
+            curr_overall = offset_start + done_in_slice
+            pct = int((curr_overall / total_input_count) * 100) if total_input_count > 0 else 0
+            try:
+                progress_bar.progress(min(pct, 100))
+                status_text.text(f"Đang xử lý: {curr_overall}/{total_input_count} người bạn ({pct}%)...")
+                # Silent visual tab title indicator for background tabs (NO SOUND!)
+                update_browser_tab_title(f"⏳ [{pct}%] Đang bóc tách ({curr_overall}/{total_input_count})...")
+            except Exception:
+                pass
+
+        def crm_batch_checkpoint(partial_slice_df):
+            if base_accumulated is not None and not base_accumulated.empty:
+                merged = pd.concat([base_accumulated, partial_slice_df], ignore_index=True)
+                merged = clean_and_reorder_crm_dataframe(merged)
+            else:
+                merged = partial_slice_df
+            st.session_state.processed_df = merged
+            save_crm_autosave(merged)
+
+        try:
+            start_time = time.time()
+            status_text.text(f"Đang khởi động phân tích {slice_total} người bạn...")
+            
+            processed_results = process_friends_dataframe(
+                df=df_to_run,
+                name_col=sel_name_col if sel_name_col else detect_columns(df_current)["name_col"],
+                link_col=sel_link_col if sel_link_col else detect_columns(df_current)["link_col"],
+                info_cols=sel_info_cols if sel_info_cols else [detect_columns(df_current)["info_col"]],
+                api_key=eff_key,
+                api_provider=eff_provider,
+                model_name=model_name,
+                target_criteria=target_criteria,
+                batch_size=batch_size,
+                progress_callback=update_progress,
+                checkpoint_callback=crm_batch_checkpoint
+            )
+            
+            if base_accumulated is not None and not base_accumulated.empty:
+                final_df = pd.concat([base_accumulated, processed_results], ignore_index=True)
+                final_df = clean_and_reorder_crm_dataframe(final_df)
+            else:
+                final_df = processed_results
+
+            elapsed = round(time.time() - start_time, 1)
+            st.session_state.processed_df = final_df
+            save_crm_autosave(final_df)
+            progress_bar.progress(100)
+            status_text.success(f"Hoàn tất xử lý {len(final_df)} người bạn trong {elapsed} giây (Đã tự động lưu an toàn vào máy)!")
+            
+            # Silent tab title update & release wake lock (NO CHIME SOUND!)
+            release_screen_wake_lock()
+            update_browser_tab_title(f"✅ [XONG 100%] Đã bóc tách {len(final_df):,} Lead CRM")
+            st.rerun()
+
+        except Exception as e:
+            release_screen_wake_lock()
+            st.error(f"Xảy ra lỗi trong quá trình xử lý: {str(e)}")
 
 # ----------------- TAB 2: DEEP PROFILE CRAWLER -----------------
 with tab_deep_crawl:
@@ -1226,6 +1349,8 @@ with tab_deep_crawl:
                 ''', unsafe_allow_html=True)
 
         if st.button("BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True):
+            activate_screen_wake_lock()
+            update_browser_tab_title(f"⏳ Đang cào sâu profile ({start_row} - {calc_end_row})...")
             p_bar_deep = st.progress(0)
             status_deep = st.empty()
 
@@ -1233,6 +1358,7 @@ with tab_deep_crawl:
                 pct = int((current / total) * 100) if total > 0 else 0
                 p_bar_deep.progress(min(pct, 100))
                 status_deep.text(msg)
+                update_browser_tab_title(f"⏳ [{pct}%] Đang cào profile ({current}/{total})...")
 
             try:
                 start_deep_t = time.time()
@@ -1261,8 +1387,10 @@ with tab_deep_crawl:
                 p_bar_deep.progress(100)
                 dur = round(time.time() - start_deep_t, 1)
                 status_deep.success(f"Hoàn tất cào sâu thông tin từ người #{start_row} đến #{calc_end_row} ({calc_end_row - int(start_row) + 1} profile) trong {dur} giây (Đã tự động lưu vào đệm máy tính)!")
-                trigger_completion_alert(f"✅ [CÀO SÂU XONG] Đã cào {calc_end_row - int(start_row) + 1} profile!")
+                release_screen_wake_lock()
+                update_browser_tab_title(f"✅ [CÀO SÂU XONG] Đã cào {calc_end_row - int(start_row) + 1} profile!")
             except Exception as e:
+                release_screen_wake_lock()
                 st.error(f"Lỗi khi cào sâu profile: {e}")
 
         # If we have deep enriched results
@@ -1359,7 +1487,8 @@ with tab_deep_crawl:
                     ai_p_bar.progress(100)
                     total_accumulated = len(st.session_state.processed_df)
                     ai_status.success(f"Đã bóc tách và CẬP NHẬT thành công {len(ai_output)} người vào bảng CRM tổng (Hiện có {total_accumulated} người đã lưu an toàn trên ổ cứng)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
-                    trigger_completion_alert(f"✅ [XONG 100%] Đã bóc tách {len(ai_output)} profile vào CRM!")
+                    release_screen_wake_lock()
+                    update_browser_tab_title(f"✅ [XONG 100%] Đã bóc tách {len(ai_output)} profile vào CRM!")
 
 # ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
@@ -1850,7 +1979,8 @@ with tab_linkedin:
 
                 found_new = matched_subset["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).sum()
                 status_li.success(f"Hoàn tất ghép nối cho {len(matched_subset)} người trong {t_dur}s (Tìm thấy {found_new} Profile LinkedIn)! Dữ liệu đã được lưu an toàn vào máy.")
-                trigger_completion_alert(f"✅ [XONG 100%] Đã ghép nối xong {len(matched_subset)} Profile LinkedIn!")
+                release_screen_wake_lock()
+                update_browser_tab_title(f"✅ [XONG 100%] Đã ghép nối xong {len(matched_subset)} Profile LinkedIn!")
 
         # Show Table of matched leads
         if "Link LinkedIn" in df_li.columns or "Tìm trên Google" in df_li.columns:
