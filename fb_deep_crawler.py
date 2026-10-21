@@ -227,7 +227,8 @@ def run_deep_profile_crawl(
     delay_seconds: float = 3.5,
     headless: bool = True,
     cookie_str: Optional[str] = None,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    checkpoint_callback: Optional[Callable[[pd.DataFrame], None]] = None
 ) -> pd.DataFrame:
     """
     Crawls Facebook profiles deeply to extract Work & Education directly from their About page.
@@ -373,6 +374,13 @@ def run_deep_profile_crawl(
                 enriched_df.at[enriched_df.index[idx], "Thông tin cào sâu"] = info_res["full_text"]
             except Exception as e:
                 enriched_df.at[enriched_df.index[idx], "Thông tin cào sâu"] = f"Lỗi truy cập profile: {str(e)[:50]}"
+            
+            # Continuous checkpoint autosave after every profile so no progress is ever lost on screen sleep
+            if checkpoint_callback:
+                try:
+                    checkpoint_callback(enriched_df)
+                except Exception:
+                    pass
                 
         if browser:
             browser.close()

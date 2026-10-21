@@ -855,7 +855,8 @@ def process_friends_dataframe(
     target_criteria: str = "",
     batch_size: int = 25,
     max_workers: int = 3,
-    progress_callback=None
+    progress_callback=None,
+    checkpoint_callback=None
 ) -> pd.DataFrame:
     """
     Main pipeline to process rows in batches, applying AI classification with fallback.
@@ -924,6 +925,13 @@ def process_friends_dataframe(
                 if start_offset + offset < total_rows:
                     results[start_offset + offset] = res_item
             done_count += len(b_items)
+            if checkpoint_callback:
+                try:
+                    valid_so_far = [r for r in results if r is not None]
+                    if valid_so_far:
+                        checkpoint_callback(clean_and_reorder_crm_dataframe(pd.DataFrame(valid_so_far)))
+                except Exception:
+                    pass
             if progress_callback:
                 try:
                     progress_callback(min(done_count, total_rows), total_rows)
@@ -947,6 +955,13 @@ def process_friends_dataframe(
                     print(f"Error processing batch {b_idx}: {ex}")
 
                 done_count += len(b_items)
+                if checkpoint_callback:
+                    try:
+                        valid_so_far = [r for r in results if r is not None]
+                        if valid_so_far:
+                            checkpoint_callback(clean_and_reorder_crm_dataframe(pd.DataFrame(valid_so_far)))
+                    except Exception:
+                        pass
                 # progress_callback is called strictly on the main thread so Streamlit's SessionContext is always present
                 if progress_callback:
                     try:

@@ -208,10 +208,28 @@ DEMO_CRM_FILE = "crm_leads_autosave.csv"
 DEMO_DEEP_FILE = "deep_crawl_autosave.csv"
 
 def get_session_id() -> str:
-    """Returns a unique session ID for the current user's browser session."""
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())[:8]
-    return st.session_state.session_id
+    """Returns a persistent session ID for the user's browser session, synced with URL query parameters."""
+    if "session_id" in st.session_state and st.session_state.session_id:
+        sid = st.session_state.session_id
+    else:
+        # Check query params first (preserves session across tab switches, screen sleep, and reloads)
+        url_sid = st.query_params.get("sid", "")
+        if url_sid:
+            url_sid = re.sub(r"[^a-zA-Z0-9_-]", "", str(url_sid))[:16]
+        if url_sid:
+            sid = url_sid
+        else:
+            sid = str(uuid.uuid4())[:8]
+        st.session_state.session_id = sid
+
+    # Keep URL query param strictly synchronized
+    try:
+        if st.query_params.get("sid") != sid:
+            st.query_params["sid"] = sid
+    except Exception:
+        pass
+
+    return sid
 
 def get_session_dir() -> str:
     """Returns isolated temporary storage folder for current session."""
@@ -225,6 +243,43 @@ def get_crm_autosave_path() -> str:
 
 def get_deep_autosave_path() -> str:
     return os.path.join(get_session_dir(), "deep_crawl_autosave.csv")
+
+def get_raw_autosave_path() -> str:
+    return os.path.join(get_session_dir(), "raw_input.csv")
+
+def get_raw_meta_path() -> str:
+    return os.path.join(get_session_dir(), "raw_meta.json")
+
+def save_raw_autosave(df: pd.DataFrame, file_name: str = "", dupes_count: int = 0, before_count: int = 0, files_count: int = 1):
+    """Saves raw input dataframe to current session folder so screen sleep / reloads never lose it."""
+    if df is not None and not df.empty:
+        try:
+            df.to_csv(get_raw_autosave_path(), index=False, encoding="utf-8-sig")
+            meta = {
+                "file_name": file_name,
+                "dupes_removed": dupes_count,
+                "total_before": before_count,
+                "files_count": files_count
+            }
+            with open(get_raw_meta_path(), "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+def load_raw_autosave():
+    raw_path = get_raw_autosave_path()
+    meta_path = get_raw_meta_path()
+    if os.path.exists(raw_path):
+        try:
+            df = pd.read_csv(raw_path, encoding="utf-8-sig")
+            meta = {}
+            if os.path.exists(meta_path):
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            return df, meta
+        except Exception:
+            pass
+    return None, {}
 
 def cleanup_old_sessions(max_age_hours: int = 72):
     """Cleans up inactive ephemeral session workspaces older than max_age_hours."""
@@ -379,12 +434,60 @@ def clear_autosaved_data():
     try:
         s_crm = get_crm_autosave_path()
         s_deep = get_deep_autosave_path()
-        for f in [s_crm, s_deep]:
+        s_raw = get_raw_autosave_path()
+        s_meta = get_raw_meta_path()
+        for f in [s_crm, s_deep, s_raw, s_meta]:
             if os.path.exists(f):
                 try:
                     os.remove(f)
                 except Exception:
                     pass
+    except Exception:
+        pass
+
+def trigger_completion_alert(title="✅ [XONG 100%] Đã bóc tách thành công!"):
+    """Notifies user in background browser tabs using Web Audio synthesizer chime and document.title change."""
+    try:
+        import streamlit.components.v1 as components
+        alert_html = f"""
+        <script>
+        try {{
+            if (window.parent && window.parent.document) {{
+                window.parent.document.title = {json.dumps(title)};
+            }}
+        }} catch(e) {{}}
+        try {{
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {{
+                const ctx = new AudioContext();
+                const now = ctx.currentTime;
+                
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(659.25, now);
+                gain1.gain.setValueAtTime(0.15, now);
+                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start(now);
+                osc1.stop(now + 0.25);
+                
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(880.00, now + 0.18);
+                gain2.gain.setValueAtTime(0.2, now + 0.18);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(now + 0.18);
+                osc2.stop(now + 0.55);
+            }}
+        }} catch(e) {{}}
+        </script>
+        """
+        components.html(alert_html, height=0)
     except Exception:
         pass
 
@@ -409,21 +512,22 @@ saved_cfg = load_saved_config()
 
 # Initialize session state & restore autosaved progress
 auto_crm, auto_deep = load_autosaved_data()
+auto_raw, auto_raw_meta = load_raw_autosave()
 
 if "raw_df" not in st.session_state:
-    st.session_state.raw_df = None
+    st.session_state.raw_df = auto_raw
 if "deep_enriched_df" not in st.session_state:
     st.session_state.deep_enriched_df = auto_deep
 if "processed_df" not in st.session_state:
     st.session_state.processed_df = auto_crm
 if "selected_file_name" not in st.session_state:
-    st.session_state.selected_file_name = ""
+    st.session_state.selected_file_name = auto_raw_meta.get("file_name", "")
 if "total_files_count" not in st.session_state:
-    st.session_state.total_files_count = 0
+    st.session_state.total_files_count = auto_raw_meta.get("files_count", 0)
 if "total_before_dedup" not in st.session_state:
-    st.session_state.total_before_dedup = 0
+    st.session_state.total_before_dedup = auto_raw_meta.get("total_before", 0)
 if "dupes_removed_count" not in st.session_state:
-    st.session_state.dupes_removed_count = 0
+    st.session_state.dupes_removed_count = auto_raw_meta.get("dupes_removed", 0)
 
 # ----------------- SIDEBAR CONFIG -----------------
 with st.sidebar:
@@ -547,15 +651,25 @@ with st.sidebar:
         st.caption("Dữ liệu bóc tách được sẽ tự động lưu liên tục trong phiên làm việc của bạn.")
 
     with st.expander("🔑 Khôi phục tiến độ khi tắt máy", expanded=False):
-        st.caption("Mỗi phiên có một mã riêng để bảo mật. Bạn có thể tự đặt tên mã (ví dụ: `duan_1`) hoặc lưu mã này lại để lần sau vào khôi phục đúng tiến độ đang làm dở:")
+        st.caption("Mỗi phiên có một mã riêng để bảo mật và tự động ghi nhớ trên trình duyệt (URL). Bạn có thể tự đặt tên mã hoặc nhập mã phiên cũ để khôi phục:")
         custom_sid_input = st.text_input("Mã phiên lưu trữ của bạn:", value=current_sid, key="workspace_id_input")
         if st.button("Mở / Khôi phục theo mã này", use_container_width=True):
             clean_sid = re.sub(r"[^a-zA-Z0-9_-]", "", custom_sid_input.strip())
-            if clean_sid and clean_sid != current_sid:
+            if clean_sid:
                 st.session_state.session_id = clean_sid
+                try:
+                    st.query_params["sid"] = clean_sid
+                except Exception:
+                    pass
                 c_df, d_df = load_autosaved_data()
+                r_df, r_meta = load_raw_autosave()
                 st.session_state.processed_df = c_df
                 st.session_state.deep_enriched_df = d_df
+                st.session_state.raw_df = r_df
+                st.session_state.selected_file_name = r_meta.get("file_name", "")
+                st.session_state.total_files_count = r_meta.get("files_count", 0)
+                st.session_state.total_before_dedup = r_meta.get("total_before", 0)
+                st.session_state.dupes_removed_count = r_meta.get("dupes_removed", 0)
                 st.rerun()
 
     st.markdown("---")
@@ -613,10 +727,27 @@ with tab_upload:
                 st.session_state.selected_file_name = uploaded_files[0].name
             else:
                 st.session_state.selected_file_name = f"{len(uploaded_files)} files: " + ", ".join([f.name for f in uploaded_files[:2]]) + ("..." if len(uploaded_files) > 2 else "")
+
+            # Persist raw file to current session folder so laptop sleep / reload never loses it!
+            save_raw_autosave(
+                deduped_df,
+                file_name=st.session_state.selected_file_name,
+                dupes_count=dupes_removed,
+                before_count=total_before,
+                files_count=len(uploaded_files)
+            )
         except Exception as e:
             st.error(f"Lỗi khi đọc file: {e}")
 
     df_current = st.session_state.raw_df
+
+    if df_current is not None and not uploaded_files:
+        st.markdown(f"""
+        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:10px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
+            <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
+            <span><b>Đã tự động khôi phục dữ liệu bạn bè từ phiên trước:</b> <b>{len(df_current):,} người bạn</b> ({st.session_state.selected_file_name}). Bạn có thể tiếp tục xử lý hoặc kéo thả file mới ở trên để thay thế.</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     if df_current is not None:
         st.markdown("---")
@@ -703,12 +834,61 @@ with tab_upload:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Process Trigger Button
-        btn_col1, btn_col2 = st.columns([2, 3])
-        with btn_col1:
-            start_btn = st.button("BẮT ĐẦU XỬ LÝ & BÓC TÁCH DỮ LIỆU", type="primary", use_container_width=True)
+        # Check existing processing progress to offer smart resume or re-run
+        curr_processed = st.session_state.processed_df
+        done_count = len(curr_processed) if curr_processed is not None and not curr_processed.empty else 0
+        total_input_count = len(df_current)
 
-        if start_btn:
+        start_btn = False
+        resume_btn = False
+        restart_btn = False
+
+        if 0 < done_count < total_input_count:
+            # INTERRUPTED / PARTIAL PROGRESS DETECTED
+            st.markdown(f"""
+            <div style="background-color:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:14px 18px; margin-bottom:14px; color:#92400E;">
+                <div style="display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.02rem; margin-bottom:4px;">
+                    <span class="icon-pill icon-pill-amber">{get_svg_icon('bolt', 18, '#D97706')}</span>
+                    <span>PHÁT HIỆN TIẾN ĐỘ ĐANG LÀM DỞ: ĐÃ BÓC TÁCH {done_count:,} / {total_input_count:,} NGƯỜI BẠN</span>
+                </div>
+                <div style="font-size:0.9rem; line-height:1.5;">
+                    Hệ thống đã lưu an toàn <b>{done_count:,} người bạn</b> đầu tiên vào máy (kể cả khi màn hình máy tính vừa tắt hoặc mạng gián đoạn). Bạn có thể bấm nút <b>Tiếp tục bóc tách</b> để chạy nối tiếp từ người thứ <b>#{done_count + 1}</b> mà không cần chạy lại từ đầu!
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            b_col1, b_col2 = st.columns([3, 2])
+            with b_col1:
+                resume_btn = st.button(
+                    f"▶️ TIẾP TỤC BÓC TÁCH (từ người #{done_count + 1} đến #{total_input_count})",
+                    type="primary",
+                    use_container_width=True
+                )
+            with b_col2:
+                restart_btn = st.button("🔄 Xử lý lại từ đầu (từ người #1)", type="secondary", use_container_width=True)
+
+        elif done_count >= total_input_count and total_input_count > 0:
+            # COMPLETED 100%
+            st.markdown(f"""
+            <div class="alert-success" style="margin-bottom:12px;">
+                <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
+                <div>
+                    <strong style="font-size:0.98rem;">ĐÃ HOÀN TẤT BÓC TÁCH TOÀN BỘ FILE (100%)</strong><br>
+                    <span>Toàn bộ <b>{done_count:,} người bạn</b> đã được phân tích và chuẩn hóa sẵn sàng trong bảng CRM ngay bên dưới!</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            r_col1, _ = st.columns([2, 3])
+            with r_col1:
+                restart_btn = st.button("🔄 Chạy lại toàn bộ tệp này", type="secondary", use_container_width=True)
+
+        else:
+            # FRESH START
+            btn_col1, _ = st.columns([2, 3])
+            with btn_col1:
+                start_btn = st.button("BẮT ĐẦU XỬ LÝ & BÓC TÁCH DỮ LIỆU", type="primary", use_container_width=True)
+
+        if start_btn or resume_btn or restart_btn:
             if provider_code != "offline" and not api_key:
                 st.warning("Bạn chưa nhập API Key. Hệ thống sẽ tự động chuyển sang chế độ Offline (sử dụng bộ quy tắc nội bộ) để xử lý dữ liệu cho bạn.")
                 eff_provider = "offline"
@@ -717,23 +897,39 @@ with tab_upload:
                 eff_provider = provider_code
                 eff_key = api_key
 
-            progress_bar = st.progress(0)
+            is_resume = bool(resume_btn and (0 < done_count < total_input_count))
+            offset_start = done_count if is_resume else 0
+            base_accumulated = curr_processed if is_resume else None
+            df_to_run = df_current.iloc[offset_start:] if is_resume else df_current
+            slice_total = len(df_to_run)
+
+            progress_bar = st.progress(int((offset_start / total_input_count) * 100) if total_input_count > 0 else 0)
             status_text = st.empty()
 
-            def update_progress(done, total):
-                pct = int((done / total) * 100) if total > 0 else 0
+            def update_progress(done_in_slice, total_in_slice):
+                curr_overall = offset_start + done_in_slice
+                pct = int((curr_overall / total_input_count) * 100) if total_input_count > 0 else 0
                 try:
-                    progress_bar.progress(pct)
-                    status_text.text(f"Đang xử lý: {done}/{total} người bạn ({pct}%)...")
+                    progress_bar.progress(min(pct, 100))
+                    status_text.text(f"Đang xử lý: {curr_overall}/{total_input_count} người bạn ({pct}%)...")
                 except Exception:
                     pass
 
+            def crm_batch_checkpoint(partial_slice_df):
+                if base_accumulated is not None and not base_accumulated.empty:
+                    merged = pd.concat([base_accumulated, partial_slice_df], ignore_index=True)
+                    merged = clean_and_reorder_crm_dataframe(merged)
+                else:
+                    merged = partial_slice_df
+                st.session_state.processed_df = merged
+                save_crm_autosave(merged)
+
             try:
                 start_time = time.time()
-                status_text.text("Đang khởi động phân tích lô dữ liệu...")
+                status_text.text(f"Đang khởi động phân tích {slice_total} người bạn...")
                 
                 processed_results = process_friends_dataframe(
-                    df=df_current,
+                    df=df_to_run,
                     name_col=sel_name_col,
                     link_col=sel_link_col,
                     info_cols=sel_info_cols,
@@ -742,18 +938,155 @@ with tab_upload:
                     model_name=model_name,
                     target_criteria=target_criteria,
                     batch_size=batch_size,
-                    progress_callback=update_progress
+                    progress_callback=update_progress,
+                    checkpoint_callback=crm_batch_checkpoint
                 )
                 
+                if base_accumulated is not None and not base_accumulated.empty:
+                    final_df = pd.concat([base_accumulated, processed_results], ignore_index=True)
+                    final_df = clean_and_reorder_crm_dataframe(final_df)
+                else:
+                    final_df = processed_results
+
                 elapsed = round(time.time() - start_time, 1)
-                st.session_state.processed_df = processed_results
-                save_crm_autosave(processed_results)
+                st.session_state.processed_df = final_df
+                save_crm_autosave(final_df)
                 progress_bar.progress(100)
-                status_text.success(f"Hoàn tất xử lý {len(processed_results)} người bạn trong {elapsed} giây (Đã tự động lưu an toàn vào máy)!")
-                st.info("Hãy chuyển sang Tab 3 (Bảng Kết Quả & Xuất File) để lọc và tải file Excel về máy!")
+                status_text.success(f"Hoàn tất xử lý {len(final_df)} người bạn trong {elapsed} giây (Đã tự động lưu an toàn vào máy)!")
+                
+                # Audio chime + Browser tab title alert for background tabs!
+                trigger_completion_alert(f"✅ [XONG 100%] Đã bóc tách {len(final_df):,} Lead!")
+                st.rerun()
 
             except Exception as e:
                 st.error(f"Xảy ra lỗi trong quá trình xử lý: {str(e)}")
+
+    # ----------------- DIRECT CRM TABLE DISPLAY IN TAB 1 -----------------
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        tab1_res_df = clean_and_reorder_crm_dataframe(st.session_state.processed_df)
+        t1_tier_col = "Độ đầy đủ thông tin" if "Độ đầy đủ thông tin" in tab1_res_df.columns else "Phân loại Lead"
+        t1_total = len(tab1_res_df)
+        t1_high = len(tab1_res_df[tab1_res_df[t1_tier_col] == "Cao"])
+        t1_mid = len(tab1_res_df[tab1_res_df[t1_tier_col] == "Trung bình"])
+        t1_valid = len(tab1_res_df[tab1_res_df["Đánh giá"] == "Hợp lệ"])
+        t1_trash = len(tab1_res_df[tab1_res_df["Đánh giá"].str.contains("Rác", na=False)])
+
+        st.markdown("---")
+        st.markdown(f"""
+        <div class="section-title">
+            <span class="icon-pill icon-pill-emerald">{get_svg_icon('table', 18, '#059669')}</span>
+            <span>Bảng Kết Quả CRM Sau Khi Bóc Tách ({t1_total:,} Khách Hàng)</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Tab 1 Summary KPIs
+        tk1, tk2, tk3, tk4, tk5 = st.columns(5)
+        with tk1:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("users", 14, "#2563EB")}</span>
+                    <span>TỔNG QUÉT</span>
+                </div>
+                <div class="metric-val">{t1_total:,}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with tk2:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon("star", 14, "#059669")}</span>
+                    <span>ĐẦY ĐỦ (CAO)</span>
+                </div>
+                <div class="metric-val val-green">{t1_high:,}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with tk3:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon("briefcase", 14, "#2563EB")}</span>
+                    <span>TRUNG BÌNH</span>
+                </div>
+                <div class="metric-val val-blue">{t1_mid:,}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with tk4:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-amber icon-pill-sm">{get_svg_icon("check_circle", 14, "#D97706")}</span>
+                    <span>HỢP LỆ</span>
+                </div>
+                <div class="metric-val val-amber">{t1_valid:,}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        with tk5:
+            st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="icon-pill icon-pill-rose icon-pill-sm">{get_svg_icon("trash", 14, "#DC2626")}</span>
+                    <span>RÁC / ĐÙA CỢT</span>
+                </div>
+                <div class="metric-val val-red">{t1_trash:,}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Quick Action & Download bar right in Tab 1!
+        t1_dl_col1, t1_dl_col2, t1_dl_note = st.columns([2, 2, 4])
+        t1_excel_bytes = export_styled_excel(tab1_res_df)
+        with t1_dl_col1:
+            st.download_button(
+                label="TẢI FILE EXCEL CHUẨN CRM (.xlsx)",
+                data=t1_excel_bytes,
+                file_name="facebook_leads_crm.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        with t1_dl_col2:
+            t1_csv_bytes = tab1_res_df.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
+                label="Tải File CSV (.csv)",
+                data=t1_csv_bytes,
+                file_name="facebook_leads.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with t1_dl_note:
+            st.markdown(f"""
+            <div style="font-size:0.88rem; color:#475569; padding-top:8px;">
+                {get_svg_icon('lightbulb', 14, '#D97706')} <i>Mẹo:</i> Chuyển sang <b>Tab 3: Bảng Kết Quả CRM</b> để dùng bộ lọc nâng cao, hoặc <b>Tab 4: Ghép Nối LinkedIn</b> để định danh profile.
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Interactive preview table in Tab 1
+        t1_col_config = {
+            "STT": st.column_config.NumberColumn("STT", width="small"),
+            "Họ và tên": st.column_config.TextColumn("Họ và tên", width="medium"),
+            "Chức vụ": st.column_config.TextColumn("Chức vụ", width="small"),
+            "Tên công ty / Đơn vị": st.column_config.TextColumn("Tên công ty / Đơn vị", width="medium"),
+            "Tên công ty chuẩn hóa": st.column_config.TextColumn("Công ty chuẩn hóa", width="medium"),
+            "Loại hình đơn vị": st.column_config.TextColumn("Loại hình đơn vị", width="small"),
+            "Trường học / Học vấn": st.column_config.TextColumn("Học vấn / Trường", width="medium"),
+            "Cấp bậc": st.column_config.TextColumn("Cấp bậc", width="small"),
+            "Lĩnh vực / Ngành nghề": st.column_config.TextColumn("Lĩnh vực", width="small"),
+            "Đánh giá": st.column_config.TextColumn("Đánh giá", width="small"),
+            "Độ đầy đủ thông tin": st.column_config.TextColumn("Độ đầy đủ TT", width="small"),
+            "Link Facebook": st.column_config.LinkColumn("Link Facebook", display_text="Mở FB", width="small")
+        }
+        if "Link LinkedIn" in tab1_res_df.columns:
+            t1_col_config["Link LinkedIn"] = st.column_config.LinkColumn("Link LinkedIn", display_text="Xem Profile", width="small")
+
+        styled_t1_table = style_dataframe_with_linkedin(tab1_res_df)
+        st.dataframe(
+            styled_t1_table,
+            use_container_width=True,
+            column_config=t1_col_config,
+            height=450
+        )
 
 # ----------------- TAB 2: DEEP PROFILE CRAWLER -----------------
 with tab_deep_crawl:
@@ -920,13 +1253,15 @@ with tab_deep_crawl:
                     delay_seconds=float(crawl_delay),
                     headless=crawl_headless,
                     cookie_str=eff_cookie if eff_cookie else None,
-                    progress_callback=deep_cb
+                    progress_callback=deep_cb,
+                    checkpoint_callback=save_deep_autosave
                 )
                 st.session_state.deep_enriched_df = enriched_res
                 save_deep_autosave(enriched_res)
                 p_bar_deep.progress(100)
                 dur = round(time.time() - start_deep_t, 1)
                 status_deep.success(f"Hoàn tất cào sâu thông tin từ người #{start_row} đến #{calc_end_row} ({calc_end_row - int(start_row) + 1} profile) trong {dur} giây (Đã tự động lưu vào đệm máy tính)!")
+                trigger_completion_alert(f"✅ [CÀO SÂU XONG] Đã cào {calc_end_row - int(start_row) + 1} profile!")
             except Exception as e:
                 st.error(f"Lỗi khi cào sâu profile: {e}")
 
@@ -1024,6 +1359,7 @@ with tab_deep_crawl:
                     ai_p_bar.progress(100)
                     total_accumulated = len(st.session_state.processed_df)
                     ai_status.success(f"Đã bóc tách và CẬP NHẬT thành công {len(ai_output)} người vào bảng CRM tổng (Hiện có {total_accumulated} người đã lưu an toàn trên ổ cứng)! Hãy chuyển sang Tab 3 để tải 1 FILE EXCEL DUY NHẤT!")
+                    trigger_completion_alert(f"✅ [XONG 100%] Đã bóc tách {len(ai_output)} profile vào CRM!")
 
 # ----------------- TAB 3: RESULTS & EXPORT -----------------
 with tab_results:
@@ -1514,6 +1850,7 @@ with tab_linkedin:
 
                 found_new = matched_subset["Link LinkedIn"].astype(str).str.contains("linkedin.com/in", na=False).sum()
                 status_li.success(f"Hoàn tất ghép nối cho {len(matched_subset)} người trong {t_dur}s (Tìm thấy {found_new} Profile LinkedIn)! Dữ liệu đã được lưu an toàn vào máy.")
+                trigger_completion_alert(f"✅ [XONG 100%] Đã ghép nối xong {len(matched_subset)} Profile LinkedIn!")
 
         # Show Table of matched leads
         if "Link LinkedIn" in df_li.columns or "Tìm trên Google" in df_li.columns:
