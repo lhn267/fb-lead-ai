@@ -823,6 +823,36 @@ with tab_deep_crawl:
         if not st.session_state.get("selected_file_name"):
             st.session_state.selected_file_name = f"Dữ liệu cào sâu đã lưu ({len(df_raw)} bạn bè)"
 
+    # Auto-align deep_enriched_df with df_raw if there is a length mismatch (e.g. user uploaded a new file)
+    if df_raw is not None and not df_raw.empty:
+        deep_df_curr = st.session_state.get("deep_enriched_df")
+        if deep_df_curr is not None and len(deep_df_curr) != len(df_raw):
+            det_cols = detect_columns(df_raw)
+            raw_link_col = det_cols.get("link_col") or (df_raw.columns[1] if len(df_raw.columns) > 1 else df_raw.columns[0])
+
+            aligned_deep = df_raw.copy()
+            if "Thông tin cào sâu" not in aligned_deep.columns:
+                aligned_deep["Thông tin cào sâu"] = ""
+
+            old_det = detect_columns(deep_df_curr)
+            old_link_col = old_det.get("link_col") or (deep_df_curr.columns[1] if len(deep_df_curr.columns) > 1 else deep_df_curr.columns[0])
+            if old_link_col in deep_df_curr.columns and raw_link_col in aligned_deep.columns:
+                crawled_lookup = {}
+                for _, r in deep_df_curr.iterrows():
+                    info_txt = str(r.get("Thông tin cào sâu", "")).strip()
+                    lk = str(r.get(old_link_col, "")).strip()
+                    if lk and info_txt and info_txt != "nan" and not info_txt.startswith("Lỗi"):
+                        crawled_lookup[get_clean_profile_url(lk)] = info_txt
+
+                if crawled_lookup:
+                    for i, r in aligned_deep.iterrows():
+                        clean_l = get_clean_profile_url(str(r.get(raw_link_col, "")))
+                        if clean_l in crawled_lookup:
+                            aligned_deep.at[i, "Thông tin cào sâu"] = crawled_lookup[clean_l]
+
+            st.session_state.deep_enriched_df = aligned_deep
+            save_deep_autosave(aligned_deep)
+
     curr_crm = st.session_state.processed_df
     has_crm_data = (curr_crm is not None and not curr_crm.empty)
     done_crm_count = len(curr_crm) if has_crm_data else 0
@@ -1029,30 +1059,81 @@ with tab_deep_crawl:
         )
 
         if uploaded_files:
-            try:
-                st.session_state["data_cleared"] = False
-                dfs = [clean_file_data(f) for f in uploaded_files]
-                deduped_df, total_before, dupes_removed = merge_and_deduplicate_dfs(dfs)
-                st.session_state.raw_df = deduped_df
-                st.session_state.total_files_count = len(uploaded_files)
-                st.session_state.total_before_dedup = total_before
-                st.session_state.dupes_removed_count = dupes_removed
+            upload_sig = "_".join(sorted([f"{f.name}_{getattr(f, 'size', 0)}" for f in uploaded_files]))
+            is_new_upload = (upload_sig != st.session_state.get("last_uploaded_files_sig"))
 
-                if len(uploaded_files) == 1:
-                    st.session_state.selected_file_name = uploaded_files[0].name
-                else:
-                    st.session_state.selected_file_name = f"{len(uploaded_files)} files: " + ", ".join([f.name for f in uploaded_files[:2]]) + ("..." if len(uploaded_files) > 2 else "")
+            if is_new_upload:
+                st.session_state.last_uploaded_files_sig = upload_sig
+                try:
+                    st.session_state["data_cleared"] = False
+                    dfs = [clean_file_data(f) for f in uploaded_files]
+                    deduped_df, total_before, dupes_removed = merge_and_deduplicate_dfs(dfs)
+                    st.session_state.raw_df = deduped_df
+                    st.session_state.total_files_count = len(uploaded_files)
+                    st.session_state.total_before_dedup = total_before
+                    st.session_state.dupes_removed_count = dupes_removed
 
-                save_raw_autosave(
-                    deduped_df,
-                    file_name=st.session_state.selected_file_name,
-                    dupes_count=dupes_removed,
-                    before_count=total_before,
-                    files_count=len(uploaded_files)
-                )
-                df_raw = deduped_df
-            except Exception as e:
-                st.error(f"Lỗi khi đọc file: {e}")
+                    if len(uploaded_files) == 1:
+                        st.session_state.selected_file_name = uploaded_files[0].name
+                    else:
+                        st.session_state.selected_file_name = f"{len(uploaded_files)} files: " + ", ".join([f.name for f in uploaded_files[:2]]) + ("..." if len(uploaded_files) > 2 else "")
+
+                    save_raw_autosave(
+                        deduped_df,
+                        file_name=st.session_state.selected_file_name,
+                        dupes_count=dupes_removed,
+                        before_count=total_before,
+                        files_count=len(uploaded_files)
+                    )
+
+                    # Instantly re-align deep_enriched_df to match the newly uploaded dataframe!
+                    det_cols = detect_columns(deduped_df)
+                    new_link_col = det_cols.get("link_col") or (deduped_df.columns[1] if len(deduped_df.columns) > 1 else deduped_df.columns[0])
+
+                    new_deep_df = deduped_df.copy()
+                    if "Thông tin cào sâu" not in new_deep_df.columns:
+                        new_deep_df["Thông tin cào sâu"] = ""
+
+                    old_deep = st.session_state.get("deep_enriched_df")
+                    if old_deep is not None and not old_deep.empty and "Thông tin cào sâu" in old_deep.columns:
+                        old_det = detect_columns(old_deep)
+                        old_link_col = old_det.get("link_col") or (old_deep.columns[1] if len(old_deep.columns) > 1 else old_deep.columns[0])
+                        if old_link_col in old_deep.columns and new_link_col in new_deep_df.columns:
+                            crawled_lookup = {}
+                            for _, r in old_deep.iterrows():
+                                info_txt = str(r.get("Thông tin cào sâu", "")).strip()
+                                lk = str(r.get(old_link_col, "")).strip()
+                                if lk and info_txt and info_txt != "nan" and not info_txt.startswith("Lỗi"):
+                                    crawled_lookup[get_clean_profile_url(lk)] = info_txt
+
+                            if crawled_lookup:
+                                for i, r in new_deep_df.iterrows():
+                                    clean_l = get_clean_profile_url(str(r.get(new_link_col, "")))
+                                    if clean_l in crawled_lookup:
+                                        new_deep_df.at[i, "Thông tin cào sâu"] = crawled_lookup[clean_l]
+
+                    st.session_state.deep_enriched_df = new_deep_df
+                    save_deep_autosave(new_deep_df)
+
+                    # Update processed_df: only keep CRM leads that exist in the newly uploaded file
+                    old_crm = st.session_state.get("processed_df")
+                    if old_crm is not None and not old_crm.empty and "Link Facebook" in old_crm.columns:
+                        new_links = set(new_deep_df[new_link_col].astype(str).map(get_clean_profile_url))
+                        matched_crm = old_crm[old_crm["Link Facebook"].astype(str).map(get_clean_profile_url).isin(new_links)]
+                        if not matched_crm.empty:
+                            st.session_state.processed_df = clean_and_reorder_crm_dataframe(matched_crm)
+                            save_crm_autosave(st.session_state.processed_df)
+                        else:
+                            st.session_state.processed_df = None
+                            try:
+                                if os.path.exists(get_crm_autosave_path()):
+                                    os.remove(get_crm_autosave_path())
+                            except Exception:
+                                pass
+
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi khi đọc file: {e}")
 
         df_raw = st.session_state.raw_df
 
