@@ -865,13 +865,13 @@ with tab_deep_crawl:
             res_c1, res_c2, _ = st.columns([3.5, 2, 2.5])
             with res_c1:
                 t1_resume_btn = st.button(
-                    f"▶️ TIẾP TỤC CÀO SÂU (từ người #{done_crm_count + 1} đến #{total_friends})",
+                    f"TIẾP TỤC CÀO SÂU (từ người #{done_crm_count + 1} đến #{total_friends})",
                     type="primary",
                     use_container_width=True,
                     key="top_resume_btn"
                 )
             with res_c2:
-                t1_restart_btn = st.button("🔄 Cào lại từ đầu", type="secondary", use_container_width=True, key="top_restart_btn")
+                t1_restart_btn = st.button("Cào lại từ đầu", type="secondary", use_container_width=True, key="top_restart_btn")
 
         elif total_friends > 0 and done_crm_count >= total_friends:
             st.markdown(f"""
@@ -1006,11 +1006,22 @@ with tab_deep_crawl:
         )
         st.markdown("---")
 
-    # ----------------- REGION 2: FILE UPLOAD & COLUMN MAPPING -----------------
-    exp_header = "📂 Nạp danh sách bạn bè mới hoặc thay đổi file cào" if has_crm_data else "1. Nạp File Danh Sách Bạn Bè Facebook (CSV / Excel)"
-    with st.expander(exp_header, expanded=(not has_crm_data)):
+    # ----------------- REGION 2: STEP 1 - FILE UPLOAD & COLUMN MAPPING -----------------
+    st.markdown(f"""
+    <div class="section-title">
+        <span class="icon-pill icon-pill-blue">{get_svg_icon('upload', 18, '#2563EB')}</span>
+        <span>Bước 1: Nạp File & Khử Trùng Lặp Bạn Bè Facebook</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if has_crm_data:
+        uploader_box = st.expander("Thay đổi hoặc nạp thêm file danh sách bạn bè (.csv, .xlsx)", expanded=False)
+    else:
+        uploader_box = st.container()
+
+    with uploader_box:
         uploaded_files = st.file_uploader(
-            "Chọn 1 hoặc nhiều file xuất từ Instant Data Scraper hoặc công cụ quét bạn bè (.csv, .xlsx, .xls)",
+            "Chọn 1 hoặc nhiều file xuất từ Instant Data Scraper hoặc công cụ quét bạn bè (.csv, .xlsx, .xls):",
             type=["csv", "xlsx", "xls"],
             accept_multiple_files=True,
             help="Kéo thả tất cả các file bạn vừa quét (A.xlsx, B.xlsx...) vào đây. Hệ thống tự động gộp và loại bỏ trùng lặp 100%!",
@@ -1045,33 +1056,23 @@ with tab_deep_crawl:
 
         df_raw = st.session_state.raw_df
 
-        if df_raw is not None and not uploaded_files:
-            st.markdown(f"""
-            <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:10px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
-                <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
-                <span><b>Đã tự động khôi phục dữ liệu bạn bè từ phiên trước:</b> <b>{len(df_raw):,} người bạn</b> ({st.session_state.selected_file_name}). Bạn có thể cào sâu ngay hoặc kéo thả file mới ở trên để thay thế.</span>
-            </div>
-            """, unsafe_allow_html=True)
-
         if df_raw is not None:
+            # Single consolidated, beautiful status banner
             if st.session_state.dupes_removed_count > 0 or st.session_state.total_files_count > 1:
                 st.markdown(f"""
-                <div class="alert-success" style="margin-top:10px;">
+                <div class="alert-success" style="margin-top:10px; margin-bottom:12px;">
                     <span class="icon-pill icon-pill-emerald">{get_svg_icon('check_circle', 18, '#059669')}</span>
                     <div>
-                        <strong style="font-size:0.98rem;">TỰ ĐỘNG GỘP VÀ KHỬ TRÙNG LẶP THÀNH CÔNG</strong><br>
-                        <span>&bull; <b>Số file đã nạp:</b> {st.session_state.total_files_count} file</span><br>
-                        <span>&bull; <b>Tổng số dòng gộp lại:</b> {st.session_state.total_before_dedup} dòng</span><br>
-                        <span>&bull; <b>Số bạn bè bị quét trùng đã tự động loại bỏ:</b> {st.session_state.dupes_removed_count} dòng (chuẩn hóa theo Link Profile)</span><br>
-                        <span>&bull; <b>Dữ liệu bạn bè duy nhất thực tế đưa vào cào sâu:</b> <b>{len(df_raw)} người</b></span>
+                        <strong style="font-size:0.96rem;">ĐÃ GỘP & KHỬ TRÙNG LẶP THÀNH CÔNG ({len(df_raw):,} BẠN BÈ)</strong><br>
+                        <span style="font-size:0.88rem;">Đã nạp <b>{st.session_state.total_files_count} file</b> &bull; Tổng <b>{st.session_state.total_before_dedup:,} dòng</b> &bull; Tự động loại bỏ <b>{st.session_state.dupes_removed_count:,} dòng quét trùng</b></span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div style="display:flex; align-items:center; gap:10px; margin: 10px 0;">
-                    <span class="icon-pill icon-pill-blue">{get_svg_icon('users', 18, '#2563EB')}</span>
-                    <span style="font-size: 1.05rem; font-weight: 600; color: #1E293B;">Dữ liệu đầu vào: {len(df_raw):,} người bạn (Nguồn: {st.session_state.selected_file_name})</span>
+                <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:10px; margin-bottom:12px; font-size:0.9rem; color:#166534; display:flex; align-items:center; gap:10px;">
+                    <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
+                    <span><b>Dữ liệu sẵn sàng:</b> <b>{len(df_raw):,} người bạn</b> ({st.session_state.selected_file_name}).</span>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1102,11 +1103,12 @@ with tab_deep_crawl:
 
     main_start_btn = False
 
-    # ----------------- REGION 3: DEEP CRAWLER SETTINGS & COOKIE -----------------
+    # ----------------- REGION 3: STEP 2 - DEEP CRAWLER SETTINGS & COOKIE -----------------
     if df_raw is not None:
         st.markdown(f"""
-        <div style="font-size: 1.05rem; font-weight: 700; color: #1E3A8A; margin-top: 15px; margin-bottom: 8px;">
-            2. Cấu Hình Cào Sâu & Tùy Chọn AI
+        <div class="section-title" style="margin-top: 24px;">
+            <span class="icon-pill icon-pill-purple">{get_svg_icon('settings', 18, '#7C3AED')}</span>
+            <span>Bước 2: Cấu Hình Cào Sâu & Chuẩn Hóa CRM</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1121,7 +1123,8 @@ with tab_deep_crawl:
 
         remaining_count = max(1, len(df_raw) - suggested_start + 1)
 
-        col_s1, col_s2, col_s3, col_s4 = st.columns([1.5, 1.5, 2, 1.5])
+        # Row 1: Parameters (balanced 3 columns)
+        col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 2.5])
         with col_s1:
             start_row = st.number_input(
                 "Bắt đầu từ người số",
@@ -1149,20 +1152,27 @@ with tab_deep_crawl:
                 step=0.5,
                 help="Mô phỏng hành vi người thật xem trang cá nhân (3.5s là mức chuẩn an toàn)."
             )
-        with col_s4:
-            crawl_headless = st.checkbox("Chạy ẩn (Headless)", value=True, help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân.")
 
-        auto_ai_handoff = st.checkbox(
-            "⚡ Tự động chuyển AI bóc tách sang CRM ngay khi cào xong (Khuyên dùng - 1 Chạm Hoàn Tất)",
-            value=True,
-            help="Sau khi cào xong thông tin từ trang cá nhân, AI sẽ tự động phân tích chức vụ, công ty, trường học và cập nhật ngay vào bảng CRM bên trên."
-        )
+        # Row 2: Options (balanced 2 columns)
+        col_opt1, col_opt2 = st.columns([2.5, 1.5])
+        with col_opt1:
+            auto_ai_handoff = st.checkbox(
+                "Tự động chuyển AI bóc tách sang CRM ngay khi cào xong (Khuyên dùng - 1 Chạm)",
+                value=True,
+                help="Sau khi cào xong thông tin từ trang cá nhân, AI sẽ tự động phân tích chức vụ, công ty, trường học và cập nhật ngay vào bảng CRM bên trên."
+            )
+        with col_opt2:
+            crawl_headless = st.checkbox(
+                "Chạy ẩn trình duyệt (Headless Mode)",
+                value=True,
+                help="Bỏ tích nếu bạn muốn nhìn thấy cửa sổ trình duyệt tự động mở và lướt qua từng trang cá nhân."
+            )
 
         calc_end_row = min(len(df_raw), int(start_row) + int(crawl_limit) - 1)
         st.markdown(f"""
-        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:9px 14px; margin-bottom:12px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
-            <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('check_circle', 14, '#059669')}</span>
-            <span><b>Phạm vi cào đợt này:</b> Từ người số <b>{start_row}</b> đến <b>{calc_end_row}</b> (Tổng cộng <b>{calc_end_row - int(start_row) + 1} người</b> / {len(df_raw)} người trong file).</span>
+        <div style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:10px 14px; margin-top:8px; margin-bottom:14px; font-size:0.88rem; color:#166534; display:flex; align-items:center; gap:8px;">
+            <span class="icon-pill icon-pill-emerald icon-pill-sm">{get_svg_icon('target', 14, '#059669')}</span>
+            <span><b>Phạm vi cào đợt này:</b> Từ người số <b>{start_row}</b> đến <b>{calc_end_row}</b> (Tổng cộng <b>{calc_end_row - int(start_row) + 1} người</b> / {len(df_raw):,} người trong danh sách).</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1185,7 +1195,12 @@ with tab_deep_crawl:
                 </div>
                 ''', unsafe_allow_html=True)
 
-        main_start_btn = st.button("BẮT ĐẦU CÀO SÂU CÔNG VIỆC & HỌC VẤN", type="primary", use_container_width=True, key="main_deep_crawl_btn")
+        main_start_btn = st.button(
+            f"BẮT ĐẦU CÀO SÂU & BÓC TÁCH CRM ({calc_end_row - int(start_row) + 1} NGƯỜI)",
+            type="primary",
+            use_container_width=True,
+            key="main_deep_crawl_btn"
+        )
 
     # ----------------- REGION 4: EXECUTION LOGIC -----------------
     trigger_deep = False
@@ -1322,7 +1337,13 @@ with tab_deep_crawl:
         has_info_mask = res_deep_df["Thông tin cào sâu"].astype(str).str.strip().ne("") & ~res_deep_df["Thông tin cào sâu"].isna()
         crawled_count = int(has_info_mask.sum())
 
-        with st.expander(f"📋 Xem trước dữ liệu thô cào sâu từ Facebook ({crawled_count} / {len(res_deep_df)} người đã cào)", expanded=False):
+        with st.expander(f"Xem trước dữ liệu thô cào sâu từ Facebook ({crawled_count} / {len(res_deep_df)} người đã cào)", expanded=False):
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; font-weight:700; color:#1E3A8A; font-size:0.95rem;">
+                <span class="icon-pill icon-pill-blue icon-pill-sm">{get_svg_icon('table', 14, '#2563EB')}</span>
+                <span>Dữ liệu thô trích xuất từ trang cá nhân Facebook</span>
+            </div>
+            """, unsafe_allow_html=True)
             show_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(exec_crawl_limit))
             
             # Safe column resolution to prevent KeyError
