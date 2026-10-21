@@ -816,6 +816,13 @@ with tab_deep_crawl:
         """, unsafe_allow_html=True)
 
     df_raw = st.session_state.raw_df
+    # If raw_df is empty or None but deep_enriched_df exists, reuse it as df_raw!
+    if (df_raw is None or df_raw.empty) and st.session_state.get("deep_enriched_df") is not None and not st.session_state.deep_enriched_df.empty:
+        df_raw = st.session_state.deep_enriched_df
+        st.session_state.raw_df = df_raw
+        if not st.session_state.get("selected_file_name"):
+            st.session_state.selected_file_name = f"Dữ liệu cào sâu đã lưu ({len(df_raw)} bạn bè)"
+
     curr_crm = st.session_state.processed_df
     has_crm_data = (curr_crm is not None and not curr_crm.empty)
     done_crm_count = len(curr_crm) if has_crm_data else 0
@@ -1088,6 +1095,10 @@ with tab_deep_crawl:
         detected_fb = detect_columns(df_raw)
         deep_name_col = detected_fb.get("name_col") or df_raw.columns[0]
         deep_link_col = detected_fb.get("link_col") or (df_raw.columns[1] if len(df_raw.columns) > 1 else df_raw.columns[0])
+    elif df_raw is None and st.session_state.get("deep_enriched_df") is not None:
+        detected_fb = detect_columns(st.session_state.deep_enriched_df)
+        deep_name_col = detected_fb.get("name_col") or st.session_state.deep_enriched_df.columns[0]
+        deep_link_col = detected_fb.get("link_col") or (st.session_state.deep_enriched_df.columns[1] if len(st.session_state.deep_enriched_df.columns) > 1 else st.session_state.deep_enriched_df.columns[0])
 
     main_start_btn = False
 
@@ -1264,11 +1275,15 @@ with tab_deep_crawl:
                         st.session_state.processed_df = clean_and_reorder_crm_dataframe(comb)
                         save_crm_autosave(st.session_state.processed_df)
 
+                    det_sub = detect_columns(sub_df)
+                    ai_name_eff = deep_name_col if (deep_name_col and deep_name_col in sub_df.columns) else (det_sub.get("name_col") or sub_df.columns[0])
+                    ai_link_eff = deep_link_col if (deep_link_col and deep_link_col in sub_df.columns) else (det_sub.get("link_col") or (sub_df.columns[1] if len(sub_df.columns) > 1 else sub_df.columns[0]))
+
                     ai_output = process_friends_dataframe(
                         df=sub_df,
-                        name_col=deep_name_col,
-                        link_col=deep_link_col,
-                        info_cols=["Thông tin cào sâu"],
+                        name_col=ai_name_eff,
+                        link_col=ai_link_eff,
+                        info_cols=["Thông tin cào sâu"] if "Thông tin cào sâu" in sub_df.columns else [sub_df.columns[-1]],
                         api_key=eff_key,
                         api_provider=eff_provider,
                         model_name=model_name,
@@ -1309,8 +1324,18 @@ with tab_deep_crawl:
 
         with st.expander(f"📋 Xem trước dữ liệu thô cào sâu từ Facebook ({crawled_count} / {len(res_deep_df)} người đã cào)", expanded=False):
             show_df = res_deep_df[has_info_mask] if crawled_count > 0 else res_deep_df.head(int(exec_crawl_limit))
+            
+            # Safe column resolution to prevent KeyError
+            det_show = detect_columns(show_df)
+            show_name_col = deep_name_col if (deep_name_col and deep_name_col in show_df.columns) else (det_show.get("name_col") or show_df.columns[0])
+            show_link_col = deep_link_col if (deep_link_col and deep_link_col in show_df.columns) else (det_show.get("link_col") or (show_df.columns[1] if len(show_df.columns) > 1 else show_df.columns[0]))
+            
+            preview_cols = [c for c in [show_name_col, show_link_col, "Thông tin cào sâu"] if c in show_df.columns]
+            if not preview_cols:
+                preview_cols = list(show_df.columns[:min(3, len(show_df.columns))])
+
             st.dataframe(
-                show_df[[deep_name_col, deep_link_col, "Thông tin cào sâu"]],
+                show_df[preview_cols],
                 use_container_width=True
             )
 
@@ -1357,11 +1382,15 @@ with tab_deep_crawl:
                     ai_p_bar.progress(100)
                     ai_status.warning("Chưa có thông tin cào sâu nào trong đợt này. Vui lòng bấm nút 'Bắt đầu cào sâu' trước khi chuyển cho AI!")
                 else:
+                    det_man = detect_columns(sub_df)
+                    man_name_col = deep_name_col if (deep_name_col and deep_name_col in sub_df.columns) else (det_man.get("name_col") or sub_df.columns[0])
+                    man_link_col = deep_link_col if (deep_link_col and deep_link_col in sub_df.columns) else (det_man.get("link_col") or (sub_df.columns[1] if len(sub_df.columns) > 1 else sub_df.columns[0]))
+
                     ai_output = process_friends_dataframe(
                         df=sub_df,
-                        name_col=deep_name_col,
-                        link_col=deep_link_col,
-                        info_cols=["Thông tin cào sâu"],
+                        name_col=man_name_col,
+                        link_col=man_link_col,
+                        info_cols=["Thông tin cào sâu"] if "Thông tin cào sâu" in sub_df.columns else [sub_df.columns[-1]],
                         api_key=eff_key,
                         api_provider=eff_provider,
                         model_name=model_name,
